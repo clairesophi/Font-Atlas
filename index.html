@@ -356,8 +356,8 @@
       <span id="aistatus"><span id="aistatustext"></span>
         <span class="pbar"><i id="aistatusfill"></i></span>
         <button id="aistophdr" style="font-size:8.5px;padding:2px 7px">stop</button></span>
-      <a id="updatenote" style="display:none" target="_blank" rel="noopener"
-         title="a newer Font Atlas is out; your library and groups are kept when you update">new version ↓</a>
+      <a id="updatenote" style="display:none" href="#"
+         title="a newer Font Atlas is out; one click updates and restarts the app, your library and groups are kept">new version ↓</a>
     </header>
     <div id="content">
       <div id="printhead">
@@ -834,10 +834,7 @@ function render() {
   renderMode();
   renderSelInfo();
   const up = $("#updatenote");
-  if (DATA.update && DATA.update.available) {
-    up.style.display = "";
-    up.href = DATA.update.url;
-  } else up.style.display = "none";
+  up.style.display = (DATA.update && DATA.update.available) ? "" : "none";
   const n = DATA.fonts.filter(f => f.uncertain).length;
   $("#revcount").textContent = n;
   $("#revcount").style.display = n ? "" : "none";
@@ -1554,6 +1551,34 @@ $("#airun").onclick = async () => {
   $("#aiprogtext").textContent = "starting…";
   $("#aiprogfill").style.width = "2%";
   scheduleAIPoll();
+};
+
+/* ---------------- one-click self-update ---------------- */
+$("#updatenote").onclick = async e => {
+  e.preventDefault();
+  const u = DATA.update || {};
+  if (!await askConfirm(`Update to v${u.latest}?`,
+    "Font Atlas downloads its newest version from GitHub, swaps itself out, and restarts. Your library, categories, tags, and groups are untouched.",
+    "update now")) return;
+  const el = $("#updatenote");
+  el.textContent = "updating…";
+  let r;
+  try { r = await api("/api/self_update", {}); }
+  catch (err) { r = { ok: false, error: String(err) }; }
+  if (!r.ok) {
+    el.textContent = "new version ↓";
+    notice("Couldn't update automatically",
+      r.error + " — you can still grab it by hand at " + (u.url || "the download page") + ".");
+    return;
+  }
+  el.textContent = "restarting…";
+  const myV = DATA.version;
+  const t = setInterval(async () => {
+    try {
+      const d = await fetch("/api/data", { cache: "no-store" }).then(x => x.json());
+      if (d.version && d.version !== myV) { clearInterval(t); location.reload(); }
+    } catch (err) { /* server is mid-restart; keep waiting */ }
+  }, 800);
 };
 
 /* ---------------- export as PDF (always the selected fonts) ------------- */

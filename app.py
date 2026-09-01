@@ -635,6 +635,56 @@ def check_for_update():
         pass  # offline or repo unreachable: simply no update notice
 
 
+ZIP_URL = ("https://github.com/clairesophi/Font-Atlas/archive/refs/heads/"
+           "main.zip")
+
+
+def self_update():
+    """Download the current release from the repo and atomically replace the
+    app's own files. The user's library is elsewhere and is never touched.
+    Returns the new version string, or raises with a readable message."""
+    import tempfile
+    import zipfile
+    req = urllib.request.Request(ZIP_URL,
+                                 headers={"User-Agent": "font-atlas"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        blob = r.read()
+    with tempfile.TemporaryDirectory() as td:
+        zpath = os.path.join(td, "update.zip")
+        with open(zpath, "wb") as f:
+            f.write(blob)
+        with zipfile.ZipFile(zpath) as z:
+            z.extractall(td)
+        root = next((os.path.join(td, d) for d in os.listdir(td)
+                     if os.path.isdir(os.path.join(td, d))), None)
+        if not root or not os.path.exists(os.path.join(root, "app.py")):
+            raise RuntimeError("the download didn't look like Font Atlas")
+        vfile = os.path.join(root, "VERSION")
+        latest = (open(vfile).read().strip()
+                  if os.path.exists(vfile) else "0.0.0")
+        def parse(v):
+            return tuple(int(x) for x in v.split("."))
+        if parse(latest) <= parse(VERSION):
+            raise RuntimeError("you already have the newest version "
+                               "(v%s)" % VERSION)
+        for name in ("app.py", "index.html", "README.md", "VERSION",
+                     "Start Font Atlas.command"):
+            src = os.path.join(root, name)
+            if not os.path.exists(src):
+                continue
+            dst = os.path.join(APP_DIR, name)
+            tmp = dst + ".new"
+            shutil.copy2(src, tmp)
+            os.replace(tmp, dst)
+    return latest
+
+
+def restart_self():
+    os.execv(sys.executable,
+             [sys.executable, os.path.join(APP_DIR, "app.py"),
+              "--no-browser"])
+
+
 # ------------------------------------------------------- sorting with Claude
 
 AISORT = {"running": False, "done": 0, "total": 0, "error": "",
@@ -1001,6 +1051,14 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=aisort_worker, args=(key, scope, wanted),
                              daemon=True).start()
             self._json({"ok": True})
+        elif path == "/api/self_update":
+            try:
+                latest = self_update()
+            except Exception as exc:
+                self._json({"ok": False, "error": str(exc)})
+                return
+            self._json({"ok": True, "version": latest})
+            threading.Timer(0.8, restart_self).start()
         elif path == "/api/groups":
             op = body.get("op")
             with LOCK:
