@@ -25,7 +25,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -71,7 +71,6 @@ DEFAULT_CATEGORIES = [
     ("blackletter", "Blackletter"),
     ("display", "Display & Decorative"),
     ("symbols", "Symbols & Icons"),
-    ("world", "Other Writing Systems"),
     ("unsorted", "Unsorted"),
 ]
 
@@ -434,9 +433,8 @@ def load_index():
             pass
     default_ids = {cid for cid, _ in DEFAULT_CATEGORIES}
     if not INDEX.get("categories"):
-        # Other Writing Systems starts unchecked; people opt in themselves
         INDEX["categories"] = [{"id": cid, "name": name,
-                                "visible": cid != "world", "kind": "style"}
+                                "visible": True, "kind": "style"}
                                for cid, name in DEFAULT_CATEGORIES]
     else:
         have = {c["id"] for c in INDEX["categories"]}
@@ -470,6 +468,20 @@ def load_index():
             if c.get("kind") == "tag":
                 c["visible"] = False
         INDEX["settings"]["tags_are_filters"] = True
+    # Other Writing Systems is retired: those fonts live under the
+    # Non-Latin toggle instead
+    INDEX["categories"] = [c for c in INDEX["categories"]
+                           if c["id"] != "world"]
+    for e in INDEX["fonts"].values():
+        if "world" in (e.get("category"), e.get("suggested"),
+                       e.get("builtin")):
+            if e.get("category") == "world":
+                e["category"] = "unsorted"
+            if e.get("suggested") == "world":
+                e["suggested"] = "unsorted"
+            if e.get("builtin") == "world":
+                e["builtin"] = "unsorted"
+            e["also"] = sorted(set(e.get("also", [])) | {"nonlatin"})
     # a font's primary home is always a style category; demote stray tags,
     # and its extras are tags only, never other categories
     tag_ids = {c["id"] for c in INDEX["categories"] if c.get("kind") == "tag"}
@@ -523,17 +535,21 @@ def index_file(path, seen_ids):
         if face["family"].startswith("."):
             continue  # hidden system-internal face inside a collection
         cat, conf = classify(face, fname)
+        if cat == "world":
+            cat, conf = "unsorted", 0.85
+            face = dict(face)
+            face["_worldish"] = True
         txt = (face["fullname"] + " " + fname).lower()
         auto = [cid for cid, _name, kws in AUTO_TAGS
                 if any(k in txt for k in kws)]
         if fname.lower().endswith(".dfont"):
             auto.append("nopreview")  # browsers can never draw these
-        if face.get("has_latin") is False:
+        if face.get("has_latin") is False or face.get("_worldish"):
             auto.append("nonlatin")
-            if not face.get("sample"):
-                # no Latin letters and no recognizable script: nothing that
-                # a preview could meaningfully show (math pieces, encodings)
-                auto.append("nopreview")
+        if face.get("has_latin") is False and not face.get("sample"):
+            # no Latin letters and no recognizable script: nothing that
+            # a preview could meaningfully show (math pieces, encodings)
+            auto.append("nopreview")
         fid = font_id(path, i)
         with LOCK:
             old = INDEX["fonts"].get(fid)

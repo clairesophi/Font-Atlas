@@ -875,6 +875,9 @@ function renderSidebar() {
     () => setAllVisible("style", false));
   for (const c of DATA.categories.filter(x => x.kind !== "tag"))
     renderCatRow(ul, c);
+  // the app's own hide-toggles live with the categories, always opt-in
+  for (const c of DATA.categories.filter(x => SYSTEM_TAGS.includes(x.id)))
+    renderCatRow(ul, c);
   addInputRow(ul, "add category…", name => {
     DATA.categories.splice(DATA.categories.length - 1, 0,
       { id: "c" + Date.now().toString(36), name, visible: true, kind: "style" });
@@ -890,9 +893,6 @@ function renderSidebar() {
     pushCats();
   });
   renderGroupRows(ul);
-  makeHead(ul, "hidden", null, null);
-  for (const c of DATA.categories.filter(x => SYSTEM_TAGS.includes(x.id)))
-    renderCatRow(ul, c);
 }
 
 function makeHead(ul, label, onAll, onNone) {
@@ -911,8 +911,7 @@ function makeHead(ul, label, onAll, onNone) {
 function setAllVisible(kind, on) {
   for (const c of DATA.categories) {
     if ((c.kind === "tag") !== (kind === "tag")) continue;
-    if (on && c.id === "world") continue;  // opt-in only, even under "all"
-    c.visible = on;
+    c.visible = on;   // Non-Latin & Preview Unavailable are tags: untouched
   }
   if (!on) { GRP_ON.clear(); saveGrpOn(); }
   pushCats();
