@@ -1,0 +1,6 @@
+# Local data only: the font index, settings, and the user's API key live here.
+# This folder must never be committed.
+data/
+__pycache__/
+.DS_Store
+*.pyc

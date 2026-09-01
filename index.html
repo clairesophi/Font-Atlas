@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Font Atlas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  :root { --size: 34px; --ink: #111; --paper: #fff; --hairline: #e6e4df;
+    --dim: #8f8d88; --faint: #c2c0ba; --accent: #d0021b; --hover: #f7f6f3;
+    --serif: Georgia, "Times New Roman", serif; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink);
+    font: 13px/1.45 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  ::selection { background: var(--ink); color: #fff; }
+  input[type=checkbox] { accent-color: var(--ink); }
+  input[type=range] { accent-color: var(--ink); }
+  input:focus, select:focus { outline: none; border-color: var(--ink); }
+
+  /* layout */
+  #app { display: flex; min-height: 100vh; }
+  #sidebar { width: 258px; flex: none; border-right: 1px solid var(--ink);
+    padding: 20px 18px 30px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  body.nosidebar #sidebar { display: none; }
+  #sidetoggle { flex: none; }
+  @media print { #sidetoggle { display: none; } }
+  #main { flex: 1; min-width: 0; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--paper);
+    border-bottom: 1px solid var(--ink); padding: 12px 24px;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+  #content { padding: 10px 24px 90px; }
+
+  h1 { font-size: 22px; margin: 0; font-weight: 800; letter-spacing: .04em;
+    text-transform: uppercase; border-bottom: 3px solid var(--ink);
+    padding-bottom: 7px; }
+  .tagline { color: var(--dim); font-size: 12.5px; margin: 8px 0 12px;
+    font-family: var(--serif); font-style: italic; }
+  /* top block mirrors the header's height so both bottom rules line up */
+  #sidetop { display: flex; flex-direction: column;
+    margin: -20px -18px 16px; padding: 12px 18px 12px;
+    border-bottom: 1px solid var(--ink); }
+  #sidebtns { display: flex; gap: 5px; margin-top: auto; }
+  #sidebtns button { flex: 1 1 auto; padding: 7px 5px; text-align: center;
+    justify-content: center; white-space: nowrap; font-size: 9.5px;
+    letter-spacing: .06em; }
+  #sidebtns .badge { margin-left: 3px; }
+
+  /* AI sort status + the sort-mode chooser */
+  #aistatus { font-size: 10px; letter-spacing: .04em; color: var(--accent);
+    display: none; align-items: center; gap: 7px; }
+  #aistatus .pbar { width: 90px; margin: 0; }
+  .pbar { height: 5px; background: var(--hairline); margin-top: 7px; }
+  .pbar i { display: block; height: 100%; width: 0%; background: var(--accent);
+    transition: width .5s; }
+  .sortopt { border: 1px solid var(--ink); padding: 13px 15px; margin: 10px 0;
+    cursor: pointer; font-size: 12.5px; line-height: 1.5; }
+  .sortopt:hover { background: var(--hover); }
+  .sortopt b { display: block; font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; margin-bottom: 3px; }
+  .sortopt.on b::after { content: " · current mode"; color: var(--accent);
+    letter-spacing: .05em; }
+  .sortopt span { color: var(--dim); }
+
+  /* header controls */
+  #sentence { flex: 1 1 260px; min-width: 180px; font-size: 15px; padding: 8px 11px;
+    border: 1px solid var(--ink); border-radius: 0; background: var(--paper); }
+  #sentence::placeholder { font-family: var(--serif); font-style: italic;
+    color: var(--faint); }
+  #filter { width: 130px; font-size: 12px; padding: 7px 9px;
+    border: 1px solid #c9c7c0; border-radius: 0; }
+  .ctl { display: flex; align-items: center; gap: 6px; color: #555;
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    white-space: nowrap; }
+  input[type=range] { width: 110px; }
+  button { font: inherit; font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; padding: 7px 13px; background: var(--paper);
+    color: var(--ink); border: 1px solid var(--ink); border-radius: 0;
+    cursor: pointer; }
+  button:hover { background: var(--ink); color: #fff; }
+  button.primary { background: var(--ink); color: #fff; }
+  button.primary:hover { background: var(--accent); border-color: var(--accent); }
+  button:disabled { opacity: .3; cursor: default; }
+  button:disabled:hover { background: var(--paper); color: var(--ink); }
+  .hbtn { min-width: 118px; text-align: center; justify-content: center; }
+  /* search + clear over hide-unselected + export, as one cluster */
+  #tools2 { flex-basis: 100%; display: grid;
+    grid-template-columns: 150px 130px; gap: 7px; justify-content: end; }
+  #tools2 input, #tools2 button { width: 100%; text-align: center; }
+  #tools2 #filter { text-align: left; }
+  .badge { background: var(--accent); color: #fff; border-radius: 0;
+    font-size: 9.5px; padding: 1px 5px; margin-left: 5px;
+    font-variant-numeric: tabular-nums; }
+  .badge.sel { background: #f2d54d; color: var(--ink); }
+
+  /* sidebar categories */
+  #catlist { list-style: none; margin: 0 0 14px; padding: 0;
+    border-top: 1px solid var(--ink); }
+  #catlist li { display: flex; align-items: center; gap: 7px; padding: 7px 3px;
+    cursor: grab; border-bottom: 1px solid var(--hairline); }
+  #catlist li.dragging { opacity: .35; }
+  #catlist li:hover { background: var(--hover); }
+  .grip { color: var(--faint); font-size: 11px; cursor: grab; }
+  .catname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 12.5px; }
+  .catname input { width: 100%; font: inherit; padding: 1px 3px;
+    border: 1px solid var(--ink); border-radius: 0; }
+  .count { color: var(--dim); font-size: 10px;
+    font-variant-numeric: tabular-nums; }
+  .delcat { border: none; background: none; color: var(--faint); padding: 0 2px;
+    font-size: 13px; visibility: hidden; }
+  #catlist li:hover .delcat { visibility: visible; }
+  .delcat:hover { color: var(--accent); background: none; }
+  #addcat { display: flex; gap: 6px; }
+  #addcat input { flex: 1; min-width: 0; font: inherit; font-size: 12px;
+    padding: 6px 8px; border: 1px solid #c9c7c0; border-radius: 0; }
+  .hint { color: var(--faint); font-size: 10.5px; margin-top: 16px;
+    line-height: 1.6; font-family: var(--serif); font-style: italic; }
+
+  /* specimen list */
+  .cat-section { margin-top: 36px; }
+  .cat-head { font-size: 10.5px; font-weight: 700; letter-spacing: .2em;
+    text-transform: uppercase; color: var(--ink);
+    border-top: 3px solid var(--ink); border-bottom: 1px solid var(--ink);
+    padding: 5px 2px 4px;
+    display: flex; justify-content: space-between; align-items: baseline; }
+  .cat-head .count { color: var(--accent); font-size: 10.5px; }
+  .specimen { padding: 12px 2px 5px; border-bottom: 1px solid var(--hairline);
+    cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .specimen:hover { background: var(--hover); }
+  .line { font-size: var(--size); line-height: 1.35; word-break: break-word;
+    font-family: sans-serif; min-height: 1.1em; }
+  .line.loading { color: #e2e0db; }
+  .line.broken { color: var(--accent); opacity: .55; font-size: 12px;
+    font-family: var(--serif); font-style: italic; }
+  .caption { display: flex; align-items: center; gap: 8px; margin-top: 4px;
+    font-size: 10.5px; color: var(--dim); letter-spacing: .02em; }
+  .caption .flag { color: var(--accent); }
+  .caption .fname { cursor: pointer; }
+  .caption .fname:hover { color: var(--ink); text-decoration: underline; }
+  .caption .fpath { display: none; color: var(--faint); }
+  body.show-paths .caption .fpath { display: inline; }
+  .specimen.picked { background: #fdf8e3; }
+  .caption .catctl { margin-left: auto; opacity: 0; }
+  .specimen:hover .caption .catctl { opacity: .85; }
+  .caption select { font-size: 10px; letter-spacing: .04em; color: #777;
+    border: none; background: none; padding: 1px 0; cursor: pointer;
+    width: 105px; border-radius: 0; }
+  .caption select:hover { color: var(--ink); }
+  #empty { margin: 90px auto; max-width: 420px; text-align: center;
+    color: #666; font-family: var(--serif); font-size: 14.5px; line-height: 1.6; }
+
+  /* modals */
+  .overlay { position: fixed; inset: 0; background: rgba(20,18,14,.4);
+    display: none; align-items: flex-start; justify-content: center;
+    z-index: 20; overflow-y: auto; padding: 6vh 16px; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--paper); border: 1px solid var(--ink);
+    border-radius: 0; padding: 24px 26px; width: 100%; max-width: 640px;
+    box-shadow: 8px 8px 0 rgba(17,17,17,.22); }
+  .modal h2 { margin: 0 0 12px; font-size: 12.5px; font-weight: 700;
+    letter-spacing: .18em; text-transform: uppercase;
+    border-bottom: 2px solid var(--ink); padding-bottom: 7px; }
+  .modal-top { position: sticky; top: 0; z-index: 3; background: var(--paper);
+    display: flex; justify-content: space-between; align-items: center;
+    margin: -24px -26px 12px; padding: 18px 26px 10px;
+    border-bottom: 2px solid var(--ink); }
+  .modal-top h2 { margin: 0; border-bottom: none; padding-bottom: 0; }
+  .modal .sub { color: var(--dim); font-size: 11.5px; line-height: 1.55;
+    margin: 0 0 16px; }
+  .rootrow { display: flex; gap: 8px; align-items: center; padding: 5px 0;
+    font-size: 12.5px; }
+  .rootrow code { font-size: 11px; color: #555; }
+  #customroot { width: 100%; font: inherit; font-size: 12px; padding: 7px 9px;
+    border: 1px solid #c9c7c0; border-radius: 0; margin-top: 6px; }
+  .modal .actions { display: flex; gap: 10px; justify-content: flex-end;
+    margin-top: 20px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+  #progress { display: none; margin-top: 14px; font-size: 12px; color: #555; }
+  #progress .bar { height: 4px; background: var(--hairline); margin-top: 8px;
+    overflow: hidden; }
+  #progress .bar i { display: block; height: 100%; width: 30%;
+    background: var(--accent); animation: slide 1.2s linear infinite; }
+  @keyframes slide { from { transform: translateX(-100%);} to { transform: translateX(400%);} }
+
+  /* review */
+  .rev-item { border-bottom: 1px solid var(--hairline); padding: 15px 0; }
+  .rev-line { font-size: 30px; line-height: 1.35; min-height: 1.1em; }
+  .rev-meta { font-size: 11px; color: var(--dim); margin: 5px 0 9px; }
+  .rev-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .rev-cats button { font-size: 9.5px; padding: 4px 9px; }
+  .rev-cats button.suggested { border-width: 2px; font-weight: 700; }
+
+  /* print */
+  #printhead { display: none; }
+  @media print {
+    #sidebar, header, .overlay { display: none !important; }
+    #printhead { display: block; padding: 0 0 6px; }
+    #printhead .pt { font-size: 20px; font-weight: 700; }
+    #printhead .ps { font-size: 10px; color: #666; margin-top: 2px; }
+    #content { padding: 0; }
+    .caption select { display: none; }
+    .specimen { break-inside: avoid; }
+    .specimen.pagebreak { break-after: page; }
+    .specimen.exclude, .cat-section.exclude { display: none; }
+    .specimen.picked { background: #fff; box-shadow: none; }
+    .specimen:hover { background: #fff; }
+    .cat-section { margin-top: 20px; }
+    body { -webkit-print-color-adjust: exact; }
+  }
+
+  /* export + ai form rows */
+  .formrow { display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    font-size: 12.5px; }
+  .formrow label { min-width: 130px; color: #555; font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase; }
+  .formrow input[type=number], .formrow select, .formrow input[type=password],
+  .formrow input[type=text] { font: inherit; font-size: 12px; padding: 6px 8px;
+    border: 1px solid #c9c7c0; border-radius: 0; }
+  .formrow input[type=password], .formrow input[type=text] { flex: 1; }
+  .formrow textarea { flex: 1; font: inherit; font-size: 12px; padding: 6px 8px;
+    border: 1px solid #c9c7c0; border-radius: 0; resize: vertical; }
+  #aichips { flex: 1; display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { font-size: 9.5px; letter-spacing: .05em; padding: 3px 8px;
+    border: 1px solid #c9c7c0; color: #666; background: var(--paper); }
+  .chip:hover { border-color: var(--ink); background: var(--paper); color: var(--ink); }
+  .finenote { font-size: 10.5px; color: var(--dim); line-height: 1.6;
+    margin-top: 12px; }
+  .finenote a { color: var(--ink); }
+  .seg { display: inline-flex; border: 1px solid var(--ink); border-radius: 0; }
+  .seg button { border: none; border-radius: 0; padding: 5px 12px;
+    display: inline-flex; align-items: center; gap: 5px; }
+  .seg button + button { border-left: 1px solid var(--ink); }
+  .seg button.on, .seg button.on:hover { background: var(--ink); color: #fff; }
+  .seg svg { width: 15px; height: 13px; display: block; }
+  .seg.mini button { padding: 4px 8px; }
+
+  /* layout modes (screen and print) */
+  #sections.cols-2 { column-count: 2; column-gap: 30px; }
+  #sections.cols-3 { column-count: 3; column-gap: 24px; }
+  #sections .specimen { break-inside: avoid; }
+  #sections .cat-section { break-inside: auto; margin-top: 22px; }
+  body.clip-lines .line { white-space: nowrap; overflow: hidden; }
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="sidebar">
+    <div id="sidetop">
+      <h1>Font Atlas</h1>
+      <p class="tagline">sort fonts. make categories. see type specimens.</p>
+      <div id="sidebtns">
+        <button id="scanbtn">scan</button>
+        <button id="sortbtn">sort</button>
+        <button id="reviewbtn">review <span class="badge" id="revcount">0</span></button>
+      </div>
+    </div>
+    <ul id="catlist"></ul>
+    <div id="addcat">
+      <input id="newcat" placeholder="new category" >
+      <button id="addcatbtn">add</button>
+    </div>
+    <p class="hint">drag to reorder · checkbox shows or hides a category in the
+      sheet · double click a name to rename · click or drag across specimens to
+      select fonts for export · suggestions are only suggestions, everything
+      can be re-sorted</p>
+  </nav>
+
+  <div id="main">
+    <header>
+      <button id="sidetoggle" title="show or hide the category panel">◀</button>
+      <input id="sentence" placeholder="Type a headline to test…"
+             value="Hello, I'm a Truck">
+      <label class="ctl" title="each specimen shows the font's own name instead of your headline, like a classic specimen book"><input type="checkbox" id="namemode"> show font names</label>
+      <label class="ctl">size <input type="range" id="size" min="16" max="90" value="34"></label>
+      <span class="ctl">
+        <span class="seg mini" data-seg="cols">
+          <button data-v="1" class="on" title="one column">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+              <path d="M1.5 2h12M1.5 5h12M1.5 8h12M1.5 11h12"/>
+            </svg></button>
+          <button data-v="2" title="two columns">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+              <path d="M1.5 2h5M1.5 5h5M1.5 8h5M1.5 11h5"/>
+              <path d="M8.5 2h5M8.5 5h5M8.5 8h5M8.5 11h5"/>
+            </svg></button>
+          <button data-v="3" title="three columns">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+              <path d="M1 2h3M1 5h3M1 8h3M1 11h3"/>
+              <path d="M6 2h3M6 5h3M6 8h3M6 11h3"/>
+              <path d="M11 2h3M11 5h3M11 8h3M11 11h3"/>
+            </svg></button>
+        </span>
+        <span class="seg mini" data-seg="wrap">
+          <button data-v="wrap" class="on" title="long headlines wrap onto the next line">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M1.5 2.5h12M1.5 6.5h9a2.5 2.5 0 0 1 0 5h-2"/>
+              <path d="M10.2 9.7 8.5 11.5l1.7 1.8" stroke-width="1.2"/>
+              <path d="M1.5 10.5h4"/>
+            </svg></button>
+          <button data-v="clip" title="long headlines get cut off at the edge">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+              <path d="M1.5 2.5h12M1.5 6.5h12M1.5 10.5h12" opacity=".35"/>
+              <path d="M1.5 2.5h8.5M1.5 6.5h8.5M1.5 10.5h8.5"/>
+              <path d="M11.5 0.8v11.4" stroke-width="1.1"/>
+            </svg></button>
+        </span>
+      </span>
+      <div id="tools2">
+        <input id="filter" placeholder="search…">
+        <button id="selclear" title="deselect all fonts">clear <span class="badge sel" id="selcount">0</span></button>
+        <button id="hideunsel">hide unselected</button>
+        <button id="printbtn" class="primary">export</button>
+      </div>
+      <span id="aistatus"><span id="aistatustext"></span>
+        <span class="pbar"><i id="aistatusfill"></i></span>
+        <button id="aistophdr" style="font-size:8.5px;padding:2px 7px">stop</button></span>
+    </header>
+    <div id="content">
+      <div id="printhead">
+        <div class="pt" id="printtitle"></div>
+        <div class="ps" id="printsub"></div>
+      </div>
+      <div id="sections"></div>
+      <div id="empty" style="display:none">
+        <p><strong>No fonts indexed yet.</strong></p>
+        <p>Run a scan to index the fonts on this computer. Files are only read,
+           never moved or changed.</p>
+        <p><button class="primary" onclick="openScan()">scan for fonts</button></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- scan modal -->
+<div class="overlay" id="scanmodal">
+  <div class="modal">
+    <h2>Scan for fonts</h2>
+    <p class="sub">Files are read in place to learn their names and styles.
+      Nothing is moved, copied, installed, or deleted.</p>
+    <div id="rootrows"></div>
+    <label class="rootrow"><input type="checkbox" id="homechk">
+      whole home folder <code id="homepath"></code>
+      <span style="color:#bbb">(slower, finds fonts in downloads, projects, etc.)</span></label>
+    <input id="customroot" placeholder="optional: another folder to scan, e.g. /Volumes/Backup">
+    <div id="progress">
+      <span id="progresstext">scanning…</span>
+      <div class="bar"><i></i></div>
+    </div>
+    <div class="actions">
+      <button id="scanclose" onclick="closeScan()">close</button>
+      <button class="primary" id="startscan">start scan</button>
+    </div>
+  </div>
+</div>
+
+<!-- sort mode chooser -->
+<div class="overlay" id="sortmodal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2>Sort fonts</h2>
+      <button id="sortclose" onclick="closeSort()">close</button>
+    </div>
+    <p class="sub">How should fonts be sorted into categories? Either way,
+      fonts you sorted by hand (✓) are never touched.</p>
+    <div class="sortopt" id="sortbuiltin">
+      <b>Built-in</b>
+      <span>Instant and fully offline. Reads each font's internal style data
+        and name. Re-applies the automatic suggestions to everything you
+        haven't sorted by hand.</span>
+    </div>
+    <div class="sortopt" id="sortclaude">
+      <b>AI (Claude)</b>
+      <span>Uses your own Anthropic API key. Knows typefaces by reputation,
+        takes a wish list of categories, and can file a font under more than
+        one.</span>
+    </div>
+    <div id="sortstatus" style="display:none; margin-top:12px; font-size:12px; color:#555"></div>
+  </div>
+</div>
+
+<!-- ai mode modal -->
+<div class="overlay" id="aimodal">
+  <div class="modal">
+    <h2>AI sorting mode</h2>
+    <p class="sub">Claude looks at each font's name and sorts it into your
+      categories, proposing new ones where a style clearly needs its own
+      section. Only font names are sent, never the font files.</p>
+    <div class="formrow" id="keyrow">
+      <label for="apikey">your Anthropic API key</label>
+      <input type="password" id="apikey" placeholder="sk-ant-…">
+    </div>
+    <div class="formrow">
+      <label for="wsid">workspace ID <span style="color:#bbb">(if needed)</span></label>
+      <input type="text" id="wsid" placeholder="wrkspc_… — only if your key says it needs one">
+    </div>
+    <div class="formrow">
+      <label>what to sort</label>
+      <select id="aiscope">
+        <option value="all" selected>everything I haven't sorted by hand</option>
+        <option value="uncertain">only unsorted and uncertain fonts</option>
+      </select>
+    </div>
+    <div class="formrow" style="align-items:flex-start">
+      <label for="aicats" style="padding-top:6px">categories you want</label>
+      <textarea id="aicats" rows="4" placeholder="one per line, e.g.&#10;Art Deco&#10;Groovy 1970s&#10;Good for posters"></textarea>
+    </div>
+    <div class="formrow" style="align-items:flex-start">
+      <label style="padding-top:3px">ideas</label>
+      <div id="aichips"></div>
+    </div>
+    <p class="finenote" style="margin-top:2px">Fonts can land in more than one
+      category: each gets one main style category plus any of these it also
+      fits (a font can be both Serif and Art Deco). Leave the box empty to let
+      Claude just sort into the sidebar categories.</p>
+    <div id="aiprogress" style="display:none; margin-top:12px; font-size:12px; color:#555">
+      <div style="display:flex; align-items:center; gap:10px">
+        <span id="aiprogtext" style="flex:1"></span>
+        <button id="aistopmodal" style="display:none">stop</button>
+      </div>
+      <div class="pbar"><i id="aiprogfill"></i></div>
+    </div>
+    <p class="finenote">Get a key at
+      <a href="https://console.anthropic.com/settings/keys" target="_blank"
+         rel="noopener">console.anthropic.com/settings/keys</a>
+      (sign in, then “Create Key” and copy the sk-ant-… value).
+      If sorting stops with a “workspace-id is required” error, copy your
+      workspace's ID from
+      <a href="https://console.anthropic.com/settings/workspaces"
+         target="_blank" rel="noopener">console.anthropic.com/settings/workspaces</a>
+      into the field above and run it again.
+      The key is saved in plain text in this app's local <b>data</b> folder on
+      this computer and is only ever sent to api.anthropic.com. Sorting ~1000
+      fonts costs roughly a dollar. Hand-sorted fonts are never overwritten.</p>
+    <div class="actions">
+      <button id="aiforget">forget key</button>
+      <button id="aiclose" onclick="closeAI()">close</button>
+      <button class="primary" id="airun">save &amp; sort now</button>
+    </div>
+  </div>
+</div>
+
+<!-- export pdf modal -->
+<div class="overlay" id="exportmodal">
+  <div class="modal">
+    <h2>Export specimen sheet as PDF</h2>
+    <p class="sub">This prepares the sheet and opens the print dialog:
+      choose “Save as PDF” there. The visible categories, their order, and
+      your filter all carry over.</p>
+    <div style="display:flex;justify-content:center;padding:4px 0 12px">
+      <div id="expreview"></div>
+    </div>
+    <div class="formrow">
+      <label>fonts</label>
+      <span id="exselcount" style="font-size:12px;color:#555"></span>
+    </div>
+    <div class="formrow">
+      <label for="pagesize">page size</label>
+      <select id="pagesize">
+        <option>Letter</option><option>A4</option><option>Legal</option>
+        <option>Tabloid</option><option>A3</option>
+      </select>
+    </div>
+    <div class="formrow">
+      <label for="exsize">specimen font size</label>
+      <input type="number" id="exsize" min="10" max="90" value="28"> px
+    </div>
+    <div class="formrow">
+      <label>columns</label>
+      <div class="seg" data-seg="cols">
+        <button data-v="1" class="on" title="one column">
+          <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M1.5 2h12M1.5 5h12M1.5 8h12M1.5 11h12"/>
+          </svg></button>
+        <button data-v="2" title="two columns">
+          <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M1.5 2h5M1.5 5h5M1.5 8h5M1.5 11h5"/>
+            <path d="M8.5 2h5M8.5 5h5M8.5 8h5M8.5 11h5"/>
+          </svg></button>
+        <button data-v="3" title="three columns">
+          <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <path d="M1 2h3M1 5h3M1 8h3M1 11h3"/>
+            <path d="M6 2h3M6 5h3M6 8h3M6 11h3"/>
+            <path d="M11 2h3M11 5h3M11 8h3M11 11h3"/>
+          </svg></button>
+      </div>
+    </div>
+    <div class="formrow">
+      <label>long headlines</label>
+      <div class="seg" data-seg="wrap">
+        <button data-v="wrap" class="on" title="wrap onto the next line">
+          <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M1.5 2.5h12M1.5 6.5h9a2.5 2.5 0 0 1 0 5h-2"/>
+            <path d="M10.2 9.7 8.5 11.5l1.7 1.8" stroke-width="1.2"/>
+            <path d="M1.5 10.5h4"/>
+          </svg> wrap</button>
+        <button data-v="clip" title="cut off at the page edge">
+          <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+            <path d="M1.5 2.5h12M1.5 6.5h12M1.5 10.5h12" opacity=".35"/>
+            <path d="M1.5 2.5h8.5M1.5 6.5h8.5M1.5 10.5h8.5"/>
+            <path d="M11.5 0.8v11.4" stroke-width="1.1"/>
+          </svg> cut off</button>
+      </div>
+    </div>
+    <div class="formrow">
+      <label for="perpage">fonts per page</label>
+      <input type="number" id="perpage" min="0" max="50" value="0" style="width:70px">
+      <span style="color:#999;font-size:11px">0 = fit as many as possible</span>
+    </div>
+    <div class="formrow">
+      <label></label>
+      <label style="min-width:0"><input type="checkbox" id="expaths"> include each font's file path</label>
+    </div>
+    <div id="exprogress" style="display:none; margin-top:8px; font-size:12px; color:#555"></div>
+    <div class="actions">
+      <button onclick="closeExport()">cancel</button>
+      <button class="primary" id="exgo">export</button>
+    </div>
+  </div>
+</div>
+
+<!-- review modal -->
+<div class="overlay" id="reviewmodal">
+  <div class="modal">
+    <div class="modal-top">
+      <h2>Review uncertain fonts</h2>
+      <button onclick="closeReview()">done</button>
+    </div>
+    <p class="sub">The scanner wasn't sure about these. Pick a category and
+      it's remembered; skip anything and it stays where it was guessed.</p>
+    <div id="revlist"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+let DATA = { fonts: [], categories: [], scan: {}, roots: [], home: "" };
+const loadedFonts = new Map();   // id -> "loading" | "ok" | "broken"
+let SEL = new Set();             // ids picked for "selected fonts only" export
+try { SEL = new Set(JSON.parse(localStorage.getItem("fa_selected") || "[]")); } catch (e) {}
+function saveSel() {
+  try { localStorage.setItem("fa_selected", JSON.stringify([...SEL])); } catch (e) {}
+}
+let HIDE_UNSEL = false;
+function renderSelInfo() {
+  document.querySelector("#selcount").textContent = SEL.size;
+  document.querySelector("#selclear").disabled = !SEL.size;
+  const hu = document.querySelector("#hideunsel");
+  if (!SEL.size) HIDE_UNSEL = false;
+  hu.disabled = !SEL.size;
+  hu.textContent = HIDE_UNSEL ? "show unselected" : "hide unselected";
+}
+
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, body) {
+  const res = await fetch(path, body
+    ? { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) }
+    : undefined);
+  return res.json();
+}
+
+async function refresh() {
+  DATA = await api("/api/data");
+  render();
+}
+
+/* ---------------- font lazy loading ---------------- */
+const io = new IntersectionObserver(entries => {
+  for (const en of entries) if (en.isIntersecting) {
+    io.unobserve(en.target);
+    ensureFont(en.target.dataset.id, en.target);
+  }
+}, { rootMargin: "400px" });
+
+async function ensureFont(id, el) {
+  let state = loadedFonts.get(id);
+  if (state === "ok") { applyFont(el, id); return; }
+  if (state === "broken") { markBroken(el); return; }
+  el.classList.add("loading");
+  if (state === "loading") {
+    await waitFor(id);
+  } else {
+    loadedFonts.set(id, "loading");
+    try {
+      const ff = new FontFace("ff_" + id, `url("/font/${id}")`);
+      await ff.load();
+      document.fonts.add(ff);
+      loadedFonts.set(id, "ok");
+    } catch (e) {
+      // Remember the failure for this render only, so a transient error
+      // (server restarting, slow disk) heals on the next re-render.
+      loadedFonts.delete(id);
+    }
+    notifyWaiters(id);
+  }
+  if (loadedFonts.get(id) === "ok") applyFont(el, id); else markBroken(el);
+}
+const waiters = new Map();
+function waitFor(id) { return new Promise(r => (waiters.get(id) || waiters.set(id, []).get(id)).push(r)); }
+function notifyWaiters(id) { (waiters.get(id) || []).forEach(r => r()); waiters.delete(id); }
+function applyFont(el, id) {
+  el.classList.remove("loading");
+  el.style.fontFamily = `"ff_${id}", sans-serif`;
+}
+function markBroken(el) {
+  el.classList.remove("loading");
+  el.classList.add("broken");
+  el.textContent = "preview not supported for this file (" + (el.dataset.ext || "") + ") · " + el.dataset.name;
+}
+
+/* ---------------- rendering ---------------- */
+function catById(id) { return DATA.categories.find(c => c.id === id); }
+function inCat(f, catId) {
+  return f.category === catId || (f.also || []).includes(catId);
+}
+function fontsIn(catId) {
+  const q = $("#filter").value.trim().toLowerCase();
+  return DATA.fonts
+    .filter(f => inCat(f, catId))
+    .filter(f => !HIDE_UNSEL || SEL.has(f.id))
+    .filter(f => !q || (f.fullname + " " + f.path).toLowerCase().includes(q))
+    .sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight
+                    || a.subfamily.localeCompare(b.subfamily));
+}
+
+function alignSideTop() {
+  const st = document.querySelector("#sidetop");
+  const h = document.querySelector("header");
+  if (st && h) st.style.minHeight = h.offsetHeight + "px";
+}
+window.addEventListener("resize", alignSideTop);
+
+function render() {
+  renderSidebar();
+  renderSections();
+  renderMode();
+  renderSelInfo();
+  const n = DATA.fonts.filter(f => f.uncertain).length;
+  $("#revcount").textContent = n;
+  $("#revcount").style.display = n ? "" : "none";
+  $("#empty").style.display = DATA.fonts.length ? "none" : "";
+  alignSideTop();
+}
+
+function renderSidebar() {
+  const ul = $("#catlist");
+  ul.innerHTML = "";
+  for (const c of DATA.categories) {
+    const n = DATA.fonts.filter(f => inCat(f, c.id)).length;
+    const li = document.createElement("li");
+    li.draggable = true;
+    li.dataset.id = c.id;
+    li.innerHTML = `<span class="grip">⠿</span>
+      <input type="checkbox" ${c.visible ? "checked" : ""}>
+      <span class="catname" title="double click to rename">${esc(c.name)}</span>
+      <span class="count">${n}</span>
+      ${c.id !== "unsorted" ? '<button class="delcat" title="delete category">×</button>' : ""}`;
+    li.querySelector("input").onchange = e => { c.visible = e.target.checked; pushCats(); };
+    li.querySelector(".catname").ondblclick = () => renameCat(li, c);
+    const del = li.querySelector(".delcat");
+    if (del) del.onclick = () => {
+      if (!confirm(`Delete "${c.name}"? Its fonts move to Unsorted (files untouched).`)) return;
+      DATA.categories = DATA.categories.filter(x => x.id !== c.id);
+      pushCats();
+    };
+    li.ondragstart = e => { li.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; };
+    li.ondragend = () => { li.classList.remove("dragging"); pushCats(); };
+    li.ondragover = e => {
+      e.preventDefault();
+      const dragging = ul.querySelector(".dragging");
+      if (!dragging || dragging === li) return;
+      const rect = li.getBoundingClientRect();
+      ul.insertBefore(dragging, e.clientY < rect.top + rect.height / 2 ? li : li.nextSibling);
+    };
+    ul.appendChild(li);
+  }
+}
+
+function renameCat(li, c) {
+  const span = li.querySelector(".catname");
+  span.innerHTML = `<input value="${esc(c.name)}">`;
+  const inp = span.querySelector("input");
+  inp.focus(); inp.select();
+  const commit = () => { c.name = inp.value.trim() || c.name; pushCats(); };
+  inp.onblur = commit;
+  inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); if (e.key === "Escape") render(); };
+}
+
+function pushCats() {
+  const order = [...$("#catlist").children].map(li => li.dataset.id);
+  DATA.categories.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+  api("/api/categories", { categories: DATA.categories }).then(refresh);
+}
+
+function sampleText(f) {
+  return $("#namemode").checked ? f.fullname : ($("#sentence").value || f.fullname);
+}
+
+function renderSections() {
+  const wrap = $("#sections");
+  wrap.innerHTML = "";
+  for (const c of DATA.categories) {
+    if (!c.visible) continue;
+    const fonts = fontsIn(c.id);
+    if (!fonts.length) continue;
+    const sec = document.createElement("section");
+    sec.className = "cat-section";
+    sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span><span class="count">${fonts.length}</span></div>`;
+    for (const f of fonts) {
+      const isAlso = f.category !== c.id;
+      const row = document.createElement("div");
+      row.className = "specimen" + (SEL.has(f.id) ? " picked" : "");
+      row.dataset.id = f.id;
+      const styleOpts = DATA.categories
+        .filter(x => x.kind !== "tag" && x.id !== f.category)
+        .map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+      row.innerHTML = `
+        <div class="line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}" title="click or drag to select">${esc(sampleText(f))}</div>
+        <div class="caption">
+          <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(f.fullname)}</span>
+          ${f.uncertain ? '<span class="flag" title="low-confidence guess">?</span>' : ""}
+          ${f.has_latin === false ? '<span class="flag" style="color:#a80" title="this font has no Latin letters; the preview above is a fallback font">non-Latin</span>' : ""}
+          ${f.locked ? '<span title="sorted by hand">✓</span>' : ""}
+          ${isAlso ? `<span class="flag" style="color:#999" title="this font's main category is ${esc(catById(f.category)?.name || "")}; it also appears here">also</span>` : ""}
+          <span class="fpath">${esc(f.path)}</span>
+          <span class="catctl"><select title="change this font's style category">
+            <option value="" selected disabled>change category…</option>
+            ${isAlso ? '<option value="__rm">✕ remove from this category</option>' : ""}
+            ${styleOpts}
+            <option value="__reset">↩ back to automatic (${esc(catById(f.suggested)?.name || f.suggested)})</option>
+          </select></span>
+        </div>`;
+      row.querySelector("select").onchange = e => {
+        const v = e.target.value;
+        if (!v) return;
+        let req;
+        if (v.startsWith("t:")) {
+          const tid = v.slice(2);
+          req = (f.also || []).includes(tid)
+            ? { ids: [f.id], remove_from: tid }
+            : { ids: [f.id], add_to: tid };
+        } else if (v === "__reset") req = { ids: [f.id], reset: true };
+        else if (v === "__rm") req = { ids: [f.id], remove_from: c.id };
+        else req = { ids: [f.id], category: v };
+        api("/api/assign", req).then(refresh);
+      };
+      row.querySelector(".fname").onclick = () =>
+        api("/api/reveal", { id: f.id });
+      const line = row.querySelector(".line");
+      if (loadedFonts.get(f.id) === "ok") applyFont(line, f.id);
+      else if (loadedFonts.get(f.id) === "broken") markBroken(line);
+      else io.observe(line);
+      sec.appendChild(row);
+    }
+    wrap.appendChild(sec);
+  }
+}
+
+/* ---------------- header controls ---------------- */
+$("#sentence").oninput = () => {
+  try { localStorage.setItem("fa_sentence", $("#sentence").value); } catch (e) {}
+  debouncedSections();
+};
+const debouncedSections = debounce(renderSections, 300);
+$("#namemode").onchange = renderSections;
+$("#filter").oninput = debounce(render, 250);
+$("#size").oninput = e => document.documentElement.style.setProperty("--size", e.target.value + "px");
+function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
+
+function setSidebar(open) {
+  document.body.classList.toggle("nosidebar", !open);
+  $("#sidetoggle").textContent = open ? "◀" : "▶ categories";
+  try { localStorage.setItem("fa_sidebar", open ? "open" : "closed"); } catch (e) {}
+  alignSideTop();
+}
+$("#sidetoggle").onclick = () =>
+  setSidebar(document.body.classList.contains("nosidebar"));
+$("#selclear").onclick = () => {
+  SEL.clear(); HIDE_UNSEL = false; saveSel(); render();
+};
+$("#hideunsel").onclick = () => {
+  HIDE_UNSEL = !HIDE_UNSEL; render();
+};
+
+/* click a specimen to select it; drag across several to paint-select */
+let dragSel = null;
+function setPicked(row, on) {
+  if (on) SEL.add(row.dataset.id); else SEL.delete(row.dataset.id);
+  row.classList.toggle("picked", on);
+}
+const NO_SELECT = ".fname, .catctl, select, option, a, button, input";
+$("#sections").addEventListener("pointerdown", e => {
+  if (e.button !== 0 || e.target.closest(NO_SELECT)) return;
+  const row = e.target.closest(".specimen");
+  if (!row) return;
+  dragSel = !SEL.has(row.dataset.id);
+  setPicked(row, dragSel);
+  e.preventDefault();
+});
+$("#sections").addEventListener("pointerover", e => {
+  if (dragSel === null || e.target.closest(NO_SELECT)) return;
+  const row = e.target.closest(".specimen");
+  if (row) setPicked(row, dragSel);
+});
+window.addEventListener("pointerup", () => {
+  if (dragSel === null) return;
+  dragSel = null;
+  saveSel();
+  const wasHiding = HIDE_UNSEL;
+  renderSelInfo();
+  if (wasHiding) { render(); return; }
+  // sync duplicate rows (a font can appear in several categories)
+  document.querySelectorAll("#sections .specimen").forEach(r =>
+    r.classList.toggle("picked", SEL.has(r.dataset.id)));
+});
+$("#addcatbtn").onclick = addCat;
+$("#newcat").onkeydown = e => { if (e.key === "Enter") addCat(); };
+function addCat() {
+  const name = $("#newcat").value.trim();
+  if (!name) return;
+  DATA.categories.splice(DATA.categories.length - 1, 0,
+    { id: "c" + Date.now().toString(36), name, visible: true, kind: "tag" });
+  $("#newcat").value = "";
+  pushCats();
+}
+
+/* ---------------- scan ---------------- */
+$("#scanbtn").onclick = openScan;
+function openScan() {
+  const rows = DATA.roots.map((r, i) =>
+    `<label class="rootrow"><input type="checkbox" class="rootchk" data-path="${esc(r)}" checked>
+     font folder <code>${esc(r)}</code></label>`).join("");
+  $("#rootrows").innerHTML = rows;
+  $("#homepath").textContent = DATA.home;
+  $("#scanclose").textContent = "close";
+  $("#scanmodal").classList.add("open");
+  if (DATA.scan.running) showProgress();
+}
+function closeScan() { $("#scanmodal").classList.remove("open"); }
+$("#startscan").onclick = async () => {
+  const roots = [...document.querySelectorAll(".rootchk:checked")].map(x => x.dataset.path);
+  if ($("#homechk").checked) roots.push(DATA.home);
+  const custom = $("#customroot").value.trim();
+  if (custom) roots.push(custom);
+  if (!roots.length) return alert("Pick at least one folder to scan.");
+  await api("/api/scan", { roots });
+  showProgress();
+};
+let pollTimer = null;
+function showProgress() {
+  $("#progress").style.display = "block";
+  $("#startscan").disabled = true;
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const d = await api("/api/data");
+    const s = d.scan;
+    $("#progresstext").textContent = s.running
+      ? `scanning… ${s.found} fonts found · ${s.dirs} folders walked · ${s.current}`
+      : `done: ${s.found} fonts indexed` + (s.error ? ` (stopped early: ${s.error})` : "");
+    if (!s.running) {
+      clearInterval(pollTimer);
+      $("#startscan").disabled = false;
+      $("#progress .bar").style.display = "none";
+      $("#scanclose").textContent = "done";
+      refresh();
+    }
+  }, 800);
+}
+
+/* ---------------- review ---------------- */
+$("#reviewbtn").onclick = () => { renderReview(); $("#reviewmodal").classList.add("open"); };
+function closeReview() { $("#reviewmodal").classList.remove("open"); refresh(); }
+function renderReview() {
+  const list = $("#revlist");
+  const items = DATA.fonts.filter(f => f.uncertain)
+    .sort((a, b) => a.family.localeCompare(b.family));
+  if (!items.length) { list.innerHTML = "<p style='color:#999'>Nothing left to review 🎉</p>"; return; }
+  list.innerHTML = "";
+  for (const f of items.slice(0, 60)) {
+    const div = document.createElement("div");
+    div.className = "rev-item";
+    const btns = DATA.categories.map(c =>
+      `<button data-cat="${c.id}" class="${c.id === f.suggested ? "suggested" : ""}">${esc(c.name)}</button>`).join("");
+    div.innerHTML = `
+      <div class="rev-line line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}">${esc(sampleText(f))}</div>
+      <div class="rev-meta">${esc(f.fullname)} · guessed “${esc(catById(f.suggested)?.name || f.suggested)}” · ${esc(f.path)}</div>
+      <div class="rev-cats">${btns}</div>`;
+    ensureFont(f.id, div.querySelector(".rev-line"));
+    div.querySelectorAll("button").forEach(b => b.onclick = async () => {
+      await api("/api/assign", { ids: [f.id], category: b.dataset.cat });
+      f.uncertain = false; f.category = b.dataset.cat;
+      div.remove();
+      const n = DATA.fonts.filter(x => x.uncertain).length;
+      $("#revcount").textContent = n;
+      if (!$("#revlist").children.length) renderReview();
+    });
+    list.appendChild(div);
+  }
+  if (items.length > 60) {
+    const more = document.createElement("p");
+    more.style.color = "#999";
+    more.textContent = `…and ${items.length - 60} more (they'll appear as you sort these)`;
+    list.appendChild(more);
+  }
+}
+
+/* ---------------- sorting (built-in or Claude) ---------------- */
+function aiPct(a) { return a.total ? Math.round(100 * a.done / a.total) : 2; }
+async function stopAI() {
+  await api("/api/aisort_stop", {});
+  $("#aistatustext").textContent = "stopping after this batch…";
+  if ($("#aimodal").classList.contains("open"))
+    $("#aiprogtext").textContent = "stopping after this batch…";
+}
+$("#aistophdr").onclick = stopAI;
+$("#aistopmodal").onclick = stopAI;
+function renderMode() {
+  const st = $("#aistatus"), a = DATA.aisort || {};
+  if (a.running) {
+    st.style.display = "inline-flex";
+    $("#aistatustext").textContent =
+      `Claude is sorting… ${a.done}/${a.total} (${aiPct(a)}%)`;
+    $("#aistatusfill").parentElement.style.display = "";
+    $("#aistatusfill").style.width = aiPct(a) + "%";
+    scheduleAIPoll();
+  } else if (a.error) {
+    st.style.display = "inline-flex";
+    $("#aistatustext").textContent = "AI sort stopped: " + a.error;
+    $("#aistatusfill").parentElement.style.display = "none";
+  } else st.style.display = "none";
+}
+$("#sortbtn").onclick = () => {
+  $("#sortbuiltin").classList.toggle("on", DATA.mode !== "ai");
+  $("#sortclaude").classList.toggle("on", DATA.mode === "ai");
+  $("#sortclose").textContent = "close";
+  $("#sortstatus").style.display = "none";
+  $("#sortmodal").classList.add("open");
+};
+function closeSort() { $("#sortmodal").classList.remove("open"); }
+$("#sortbuiltin").onclick = async () => {
+  const st = $("#sortstatus");
+  st.style.display = "block";
+  st.textContent = "re-sorting…";
+  await api("/api/settings", { mode: "builtin" });
+  await api("/api/assign", { reset_all: true });
+  await refresh();
+  const n = DATA.fonts.filter(f => !f.locked).length;
+  st.textContent = `Done. Built-in suggestions re-applied to ${n} fonts (hand-sorted ones untouched).`;
+  $("#sortclose").textContent = "done";
+  $("#sortbuiltin").classList.add("on");
+  $("#sortclaude").classList.remove("on");
+};
+$("#sortclaude").onclick = () => { closeSort(); openAI(); };
+let aiPollTimer = null;
+function updateAIModalProgress() {
+  const a = DATA.aisort || {};
+  if (!a.running) return;
+  $("#aiprogress").style.display = "block";
+  $("#aistopmodal").style.display = "";
+  $("#aiprogtext").textContent =
+    `sorting… ${a.done} of ${a.total} fonts (${aiPct(a)}%)` +
+    (a.new_categories ? ` · ${a.new_categories} new categories` : "") +
+    " — batches take a minute or so; it's safe to close this window";
+  $("#aiprogfill").style.width = aiPct(a) + "%";
+}
+function scheduleAIPoll() {
+  clearTimeout(aiPollTimer);
+  aiPollTimer = setTimeout(async () => {
+    const wasRunning = DATA.aisort && DATA.aisort.running;
+    DATA = await api("/api/data");
+    if (DATA.aisort.running) {
+      renderMode();
+      updateAIModalProgress();
+    } else {
+      if (wasRunning && !DATA.aisort.error) {
+        const a = DATA.aisort;
+        $("#aiprogress").style.display = "block";
+        $("#aistopmodal").style.display = "none";
+        $("#aiprogtext").textContent = a.stopped
+          ? `Stopped. ${a.done} of ${a.total} fonts were sorted before the stop.`
+          : `Done. ${a.done} fonts sorted` +
+            (a.new_categories ? `, ${a.new_categories} new categories created.` : ".");
+        $("#aiprogfill").style.width = "100%";
+        $("#aiclose").textContent = "done";
+        $("#airun").disabled = false;
+      }
+      render(); renderMode();
+    }
+  }, 1200);
+}
+const CHIP_IDEAS = ["Art Deco", "Groovy / psychedelic", "Y2K / techy",
+  "Elegant fashion serif", "Friendly & rounded", "Grunge / distressed",
+  "Western / woodtype", "Sorted by decade designed", "Good for posters",
+  "Good for long text", "Handmade feel", "Corporate & clean"];
+function openAI() {
+  $("#keyrow").style.display = DATA.has_key ? "none" : "flex";
+  $("#wsid").value = DATA.workspace_id || "";
+  $("#aiforget").style.display = DATA.has_key ? "" : "none";
+  try { $("#aicats").value = localStorage.getItem("fa_aicats") || $("#aicats").value; } catch (e) {}
+  $("#aiclose").textContent = "close";
+  $("#airun").disabled = !!(DATA.aisort && DATA.aisort.running);
+  $("#aiprogress").style.display = "none";
+  updateAIModalProgress();
+  if (!$("#aichips").children.length)
+    for (const idea of CHIP_IDEAS) {
+      const b = document.createElement("button");
+      b.className = "chip"; b.type = "button"; b.textContent = "+ " + idea;
+      b.onclick = () => {
+        const ta = $("#aicats");
+        if (!ta.value.split("\n").map(s => s.trim()).includes(idea))
+          ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + idea;
+        try { localStorage.setItem("fa_aicats", ta.value); } catch (e) {}
+      };
+      $("#aichips").appendChild(b);
+    }
+  $("#aimodal").classList.add("open");
+  if (DATA.aisort && DATA.aisort.running) scheduleAIPoll();
+}
+function closeAI() { $("#aimodal").classList.remove("open"); }
+$("#aiforget").onclick = async () => {
+  await api("/api/settings", { api_key: "", mode: "builtin" });
+  await refresh(); renderMode(); closeAI();
+};
+$("#airun").onclick = async () => {
+  const key = $("#apikey").value.trim();
+  if (!DATA.has_key && !key) { alert("Paste your Anthropic API key first (sk-ant-…)."); return; }
+  const ws = $("#wsid").value.trim();
+  if (ws && !ws.startsWith("wrkspc_")) {
+    alert(ws.startsWith("sk-ant")
+      ? "That's your API key. The workspace ID is a different string that starts with wrkspc_ — find it at console.anthropic.com/settings/workspaces (click your workspace, copy its ID)."
+      : "A workspace ID starts with wrkspc_ — find it at console.anthropic.com/settings/workspaces. Leave the field empty if you're not sure you need one.");
+    return;
+  }
+  const settings = { mode: "ai", workspace_id: $("#wsid").value };
+  if (key) settings.api_key = key;
+  await api("/api/settings", settings);
+  $("#apikey").value = "";
+  const wantedCats = $("#aicats").value.split("\n").map(s => s.trim()).filter(Boolean);
+  try { localStorage.setItem("fa_aicats", $("#aicats").value); } catch (e) {}
+  const r = await api("/api/aisort", { scope: $("#aiscope").value,
+                                       categories: wantedCats });
+  if (!r.ok) { alert(r.error); return; }
+  DATA.mode = "ai"; DATA.has_key = true; DATA.aisort = { running: true, done: 0, total: 0 };
+  renderMode();
+  $("#airun").disabled = true;
+  $("#aiprogress").style.display = "block";
+  $("#aiprogtext").textContent = "starting…";
+  $("#aiprogfill").style.width = "2%";
+  scheduleAIPoll();
+};
+
+/* ---------------- export as PDF (always the selected fonts) ------------- */
+$("#printbtn").onclick = () => {
+  if (!SEL.size) {
+    alert("Nothing selected yet. Click a specimen (or drag across several) to choose which fonts go on the sheet, then export.");
+    return;
+  }
+  $("#exselcount").textContent = SEL.size + " selected fonts, grouped by your visible categories";
+  $("#exportmodal").classList.add("open");
+  renderExportPreview();
+};
+
+/* schematic preview: page aspect ratio, columns, and bar height in true
+   proportion to the chosen specimen size (no real text) */
+const PAGE_MM = { Letter: [215.9, 279.4], A4: [210, 297], Legal: [215.9, 355.6],
+                  Tabloid: [279.4, 431.8], A3: [297, 420] };
+function renderExportPreview() {
+  const box = $("#expreview");
+  if (!box) return;
+  const [pw, ph] = PAGE_MM[$("#pagesize").value] || PAGE_MM.Letter;
+  const H = 190, s = H / ph, W = pw * s;
+  const margin = 14 * s;
+  const cols = +LAYOUT.cols || 1;
+  const gap = (cols > 1 ? 8 : 0) * s;
+  const fsize = +$("#exsize").value || 28;
+  const perPage = Math.max(0, +$("#perpage").value || 0);
+  const mm = 25.4 / 96;               // CSS px -> mm at print scale
+  const lineH = Math.max(1.5, fsize * 1.35 * mm * s);
+  const capH = Math.max(1.2, 10 * mm * s);
+  const rowPad = 17 * mm * s;
+  const wrap = LAYOUT.wrap === "wrap";
+  const innerB = H - margin, colW = (W - 2 * margin - gap * (cols - 1)) / cols;
+  box.style.cssText = `width:${W.toFixed(1)}px;height:${H}px;position:relative;`
+    + "background:#fff;border:1px solid var(--ink);box-shadow:4px 4px 0 rgba(17,17,17,.15)";
+  box.innerHTML = "";
+  let total = 0, stop = false;
+  for (let c = 0; c < cols && !stop; c++) {
+    let y = margin, i = 0;
+    while (true) {
+      const dbl = wrap && cols > 1 && i % 3 === 2;      // a wrapped headline
+      const rowH = lineH * (dbl ? 2 : 1) + capH + rowPad;
+      if (y + rowH > innerB) break;
+      if (perPage && total >= perPage) { stop = true; break; }
+      const x = margin + c * (colW + gap);
+      const barW = wrap ? colW * (0.55 + ((i * 37 + c * 13) % 40) / 100) : colW;
+      box.insertAdjacentHTML("beforeend",
+        `<div style="position:absolute;left:${x}px;top:${y}px;width:${Math.min(barW, colW).toFixed(1)}px;height:${(lineH * (dbl ? 2 : 1)).toFixed(1)}px;background:#3a3a38"></div>` +
+        `<div style="position:absolute;left:${x}px;top:${(y + lineH * (dbl ? 2 : 1) + 1.5).toFixed(1)}px;width:${(colW * 0.45).toFixed(1)}px;height:${Math.max(1.2, capH * 0.55).toFixed(1)}px;background:#c9c7c0"></div>`);
+      y += rowH; i++; total++;
+    }
+  }
+  box.insertAdjacentHTML("beforeend",
+    `<div style="position:absolute;right:4px;bottom:2px;font-size:8.5px;letter-spacing:.05em;color:#999">~${total} / page</div>`);
+}
+for (const id of ["pagesize", "exsize", "perpage", "expaths"])
+  $("#" + id).addEventListener("input", renderExportPreview);
+function closeExport() { $("#exportmodal").classList.remove("open"); }
+/* columns + wrap/cut-off: one shared state for the main page and the export
+   dialog (the two segmented controls are just two views of it) */
+const LAYOUT = { cols: "1", wrap: "wrap" };
+try {
+  LAYOUT.cols = localStorage.getItem("fa_cols") || "1";
+  LAYOUT.wrap = localStorage.getItem("fa_wrap") || "wrap";
+} catch (e) {}
+function applyLayout() {
+  $("#sections").classList.toggle("cols-2", LAYOUT.cols === "2");
+  $("#sections").classList.toggle("cols-3", LAYOUT.cols === "3");
+  document.body.classList.toggle("clip-lines", LAYOUT.wrap === "clip");
+  document.querySelectorAll("[data-seg]").forEach(seg =>
+    seg.querySelectorAll("button").forEach(b =>
+      b.classList.toggle("on", b.dataset.v === LAYOUT[seg.dataset.seg])));
+  try {
+    localStorage.setItem("fa_cols", LAYOUT.cols);
+    localStorage.setItem("fa_wrap", LAYOUT.wrap);
+  } catch (e) {}
+  if ($("#exportmodal").classList.contains("open")) renderExportPreview();
+}
+document.querySelectorAll("[data-seg] button").forEach(b => b.onclick = () => {
+  LAYOUT[b.closest("[data-seg]").dataset.seg] = b.dataset.v;
+  applyLayout();
+});
+applyLayout();
+$("#exgo").onclick = async () => {
+  const size = $("#pagesize").value;
+  const fsize = +$("#exsize").value || 28;
+  const perPage = Math.max(0, +$("#perpage").value || 0);
+  const selOnly = true;
+  document.body.classList.toggle("show-paths", $("#expaths").checked);
+  document.documentElement.style.setProperty("--size", fsize + "px");
+  $("#size").value = Math.min(90, fsize);
+  let st = $("#pagestyle");
+  if (!st) { st = document.createElement("style"); st.id = "pagestyle"; document.head.appendChild(st); }
+  st.textContent = `@page { size: ${size}; margin: 14mm; }
+    ${LAYOUT.cols > 1 ? `@media print { #sections { column-gap: 8mm; } }` : ""}`;
+  document.querySelectorAll("#sections .specimen").forEach(row =>
+    row.classList.toggle("exclude", selOnly && !SEL.has(row.dataset.id)));
+  document.querySelectorAll("#sections .cat-section").forEach(sec =>
+    sec.classList.toggle("exclude",
+      ![...sec.querySelectorAll(".specimen")].some(r => !r.classList.contains("exclude"))));
+  const lines = [...document.querySelectorAll("#sections .specimen:not(.exclude) .line")];
+  lines.forEach((el, i) => el.closest(".specimen").classList.toggle(
+    "pagebreak", perPage > 0 && (i + 1) % perPage === 0));
+  const prog = $("#exprogress");
+  prog.style.display = "block";
+  let done = 0;
+  for (const el of lines) {
+    prog.textContent = `loading fonts ${++done}/${lines.length}…`;
+    await ensureFont(el.dataset.id, el);
+  }
+  $("#printtitle").textContent = $("#namemode").checked
+    ? "Type Specimen" : ($("#sentence").value || "Type Specimen");
+  $("#printsub").textContent = `Font Atlas · ${lines.length} fonts · ${new Date().toLocaleDateString()}`;
+  prog.textContent = "opening the print dialog: choose “Save as PDF”";
+  closeExport();
+  setTimeout(() => window.print(), 150);
+};
+
+/* ---------------- boot ---------------- */
+(async () => {
+  try {
+    const saved = localStorage.getItem("fa_sentence");
+    if (saved) $("#sentence").value = saved;
+    setSidebar(localStorage.getItem("fa_sidebar") !== "closed");
+  } catch (e) {}
+  await refresh();
+  if (!DATA.fonts.length && !DATA.scan.running) openScan();
+  if (DATA.scan.running) { openScan(); showProgress(); }
+})();
+</script>
+</body>
+</html>
