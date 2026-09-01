@@ -31,8 +31,15 @@
   ol { padding-left: 20px; margin: 36px 0 0; }
   ol li { margin: 9px 0; }
   code { background: #f4f3f0; padding: 2px 6px; font-size: 13px; }
-  #shot { width: 100%; margin-top: 38px; border: 1px solid var(--ink);
-    box-shadow: 8px 8px 0 rgba(17,17,17,.15); display: block; }
+  #shotwin { margin-top: 38px; border: 1px solid var(--ink);
+    box-shadow: 8px 8px 0 rgba(17,17,17,.15); }
+  #shotbar { display: flex; align-items: center; gap: 6px; padding: 8px 10px;
+    border-bottom: 1px solid var(--ink); background: #f4f3f0; }
+  #shotbar i { width: 10px; height: 10px; border-radius: 50%;
+    background: #dedbd4; border: 1px solid #c4c1ba; }
+  #shotbar span { margin-left: 8px; font-size: 10px; color: var(--dim);
+    letter-spacing: .05em; }
+  #shot { width: 100%; display: block; }
   .fine { color: var(--dim); font-size: 12px; font-family: var(--serif);
     font-style: italic; line-height: 1.7; margin-top: 36px;
     border-top: 1px solid var(--hairline); padding-top: 14px; }
@@ -57,7 +64,10 @@
     <a class="btn ghost" href="https://github.com/clairesophi/Font-Atlas">code</a>
   </p>
 
-  <img id="shot" src="screenshot.png" alt="Font Atlas showing a library of fonts sorted into categories">
+  <div id="shotwin">
+    <div id="shotbar"><i></i><i></i><i></i><span>localhost:8765</span></div>
+    <img id="shot" src="screenshot.png" alt="Font Atlas showing a library of fonts sorted into categories">
+  </div>
 
   <ol>
     <li>unzip anywhere, open <code>Start Font Atlas.command</code>
