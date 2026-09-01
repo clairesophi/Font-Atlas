@@ -51,7 +51,7 @@ LEGACY_INDEX = os.path.join(APP_DIR, "data", "index.json")
 PORT = 8765
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
-CLASSIFIER_VERSION = 8  # bump to force re-classification of unchanged files
+CLASSIFIER_VERSION = 9  # bump to force re-classification of unchanged files
 
 # Tag categories applied automatically by name at scan time.
 AUTO_TAGS = [("trial", "Trial Fonts", ["trial", "demo version", "unlicensed"])]
@@ -434,8 +434,9 @@ def load_index():
             pass
     default_ids = {cid for cid, _ in DEFAULT_CATEGORIES}
     if not INDEX.get("categories"):
-        INDEX["categories"] = [{"id": cid, "name": name, "visible": True,
-                                "kind": "style"}
+        # Other Writing Systems starts unchecked; people opt in themselves
+        INDEX["categories"] = [{"id": cid, "name": name,
+                                "visible": cid != "world", "kind": "style"}
                                for cid, name in DEFAULT_CATEGORIES]
     else:
         have = {c["id"] for c in INDEX["categories"]}
