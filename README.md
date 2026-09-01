@@ -9,8 +9,10 @@ renamed, or deleted. The index is just a list of paths and names saved in
 
 ## Run it
 
-Anyone with a Mac can double-click **Start Font Atlas.command**
-(the first time, right-click it and choose Open).
+Anyone with a Mac can double-click **Start Font Atlas.command**.
+The first time, macOS will block it ("Apple could not verify..."): click
+Done, then open System Settings > Privacy & Security, scroll down, and click
+**Open Anyway**. That's only needed once.
 
 Or from a terminal, on any Mac / Windows / Linux machine with Python 3:
 
