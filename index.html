@@ -328,6 +328,15 @@
               <path d="M11 2h3M11 5h3M11 8h3M11 11h3"/>
             </svg></button>
         </span>
+        <span class="seg mini" data-seg="sort">
+          <button data-v="az" class="on" title="sort alphabetically">A–Z</button>
+          <button data-v="date" title="sort by install date, newest first">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+              <rect x="1.5" y="2.5" width="12" height="9.5" rx="0.5"/>
+              <path d="M1.5 5.5h12M4.5 1v3M10.5 1v3"/>
+              <path d="M4 8h2M7 8h2M10 8h1.5M4 10h2M7 10h2"/>
+            </svg></button>
+        </span>
         <span class="seg mini" data-seg="wrap">
           <button data-v="wrap" class="on" title="long headlines wrap onto the next line">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
@@ -826,8 +835,10 @@ function fontsIn(catId) {
       return true;
     })
     .filter(f => !q || (f.fullname + " " + f.path).toLowerCase().includes(q))
-    .sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight
-                    || a.subfamily.localeCompare(b.subfamily));
+    .sort((a, b) => LAYOUT.sort === "date"
+      ? (b.mtime - a.mtime) || a.family.localeCompare(b.family)
+      : a.family.localeCompare(b.family) || a.weight - b.weight
+        || a.subfamily.localeCompare(b.subfamily));
 }
 
 function alignSideTop() { /* the panel no longer mirrors the header height */ }
@@ -886,25 +897,34 @@ function setAllVisible(kind, on) {
   pushCats();
 }
 
-/* which categories a group's fonts live in (tags are filters and stay put) */
+/* which boxes a group's fonts depend on: their categories, plus any
+   quarantine tags they carry (ordinary tags are filters and stay put) */
 function groupNeeds(g) {
-  const idset = new Set(g.ids), cats = new Set();
-  for (const f of DATA.fonts)
-    if (idset.has(f.id)) cats.add(f.category);
-  return cats;
+  const idset = new Set(g.ids), boxes = new Set();
+  for (const f of DATA.fonts) {
+    if (!idset.has(f.id)) continue;
+    boxes.add(f.category);
+    for (const t of (f.also || []))
+      if (EXCLUSIVE_TAGS.includes(t)) boxes.add(t);
+  }
+  return boxes;
+}
+
+function flipOnFor(need) {
+  let changed = false;
+  for (const c of DATA.categories)
+    if (need.has(c.id) && !c.visible) {
+      c.visible = true;
+      changed = true;
+    }
+  return changed;
 }
 
 async function setGroupOn(g) {
   GRP_ON.add(g.id);
   saveGrpOn();
-  const need = groupNeeds(g);
-  let changed = false;
-  for (const c of DATA.categories)
-    if (c.kind !== "tag" && need.has(c.id) && !c.visible) {
-      c.visible = true;
-      changed = true;
-    }
-  if (changed) await api("/api/categories", { categories: DATA.categories });
+  if (flipOnFor(groupNeeds(g)))
+    await api("/api/categories", { categories: DATA.categories });
   refresh();
 }
 
@@ -913,14 +933,8 @@ async function groupsAll(on) {
   saveGrpOn();
   if (on) {
     let changed = false;
-    for (const g of DATA.groups || []) {
-      const need = groupNeeds(g);
-      for (const c of DATA.categories)
-        if (c.kind !== "tag" && need.has(c.id) && !c.visible) {
-          c.visible = true;
-          changed = true;
-        }
-    }
+    for (const g of DATA.groups || [])
+      changed = flipOnFor(groupNeeds(g)) || changed;
     if (changed) await api("/api/categories", { categories: DATA.categories });
   }
   refresh();
@@ -1011,8 +1025,8 @@ function renderCatRow(ul, c) {
       ${c.id !== "unsorted" ? '<button class="delcat" title="delete category">×</button>' : ""}`;
     li.querySelector("input").onchange = e => {
       c.visible = e.target.checked;
-      if (!e.target.checked && c.kind !== "tag") {
-        // a group whose fonts live in this category no longer fully shows
+      if (!e.target.checked) {
+        // a group that depends on this box no longer fully shows: flip it off
         for (const g of DATA.groups || []) {
           if (GRP_ON.has(g.id) && groupNeeds(g).has(c.id))
             GRP_ON.delete(g.id);
@@ -1664,10 +1678,11 @@ for (const id of ["pagesize", "exsize", "perpage", "expaths"])
 function closeExport() { $("#exportmodal").classList.remove("open"); }
 /* columns + wrap/cut-off: one shared state for the main page and the export
    dialog (the two segmented controls are just two views of it) */
-const LAYOUT = { cols: "1", wrap: "wrap" };
+const LAYOUT = { cols: "1", wrap: "wrap", sort: "az" };
 try {
   LAYOUT.cols = localStorage.getItem("fa_cols") || "1";
   LAYOUT.wrap = localStorage.getItem("fa_wrap") || "wrap";
+  LAYOUT.sort = localStorage.getItem("fa_sort") || "az";
 } catch (e) {}
 function applyLayout() {
   $("#sections").classList.toggle("cols-2", LAYOUT.cols === "2");
@@ -1679,12 +1694,15 @@ function applyLayout() {
   try {
     localStorage.setItem("fa_cols", LAYOUT.cols);
     localStorage.setItem("fa_wrap", LAYOUT.wrap);
+    localStorage.setItem("fa_sort", LAYOUT.sort);
   } catch (e) {}
   if ($("#exportmodal").classList.contains("open")) renderExportPreview();
 }
 document.querySelectorAll("[data-seg] button").forEach(b => b.onclick = () => {
-  LAYOUT[b.closest("[data-seg]").dataset.seg] = b.dataset.v;
+  const key = b.closest("[data-seg]").dataset.seg;
+  LAYOUT[key] = b.dataset.v;
   applyLayout();
+  if (key === "sort") renderSections();
 });
 applyLayout();
 $("#exgo").onclick = async () => {

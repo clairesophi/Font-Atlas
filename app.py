@@ -824,18 +824,9 @@ def aisort_worker(key, scope, wanted=()):
         AISORT["running"] = False
 
 
-def _system_font_dir(path):
-    home = os.path.expanduser("~")
-    roots = ["/System/Library/Fonts", "/Library/Fonts",
-             os.path.join(home, "Library", "Fonts"),
-             "/usr/share/fonts", os.path.join(home, ".fonts")]
-    return any(path.startswith(r + os.sep) or path.startswith(r)
-               for r in roots)
-
-
 def deduped_fonts():
     """One entry per (family, style); extra copies of the same face are
-    folded into it. Hand-sorted copies win; installed copies preferred."""
+    folded into it. Hand-sorted copies win, then the most recent install."""
     groups = {}
     for e in INDEX["fonts"].values():
         key = (e["family"].lower().strip(), e["subfamily"].lower().strip())
@@ -843,7 +834,7 @@ def deduped_fonts():
     out = []
     for entries in groups.values():
         entries.sort(key=lambda e: (not e.get("locked"),
-                                    not _system_font_dir(e["path"]),
+                                    -e.get("mtime", 0),
                                     e["path"]))
         canon = dict(entries[0])
         if len(entries) > 1:
