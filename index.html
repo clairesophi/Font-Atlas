@@ -96,7 +96,7 @@
   #wordmark span.sp { width: 13px; flex: none; }
   @media print { #wordmark { display: none; } }
 
-  /* search + clear over hide-unselected + export, as one cluster */
+  /* search + clear over save-group + export, as one cluster */
   #tools2 { flex-basis: 100%; display: grid;
     grid-template-columns: 150px 130px; gap: 7px; justify-content: end; }
   #tools2 input, #tools2 button { width: 100%; text-align: center; }
@@ -147,6 +147,12 @@
     font-size: 13px; visibility: hidden; }
   #catlist li:hover .delcat { visibility: visible; }
   .delcat:hover { color: var(--accent); background: none; }
+  .hidetag { border: none; background: none; color: var(--faint); padding: 0 2px;
+    display: flex; align-items: center; }
+  .hidetag svg { width: 15px; height: 11px; display: block; }
+  .hidetag:hover { color: var(--accent); background: none; }
+  .hidetag.on { color: var(--accent); }
+  #catlist li.taghidden .catname, #catlist li.taghidden .count { color: var(--faint); }
   #addcat { display: flex; gap: 5px; }
   #addcat input { flex: 1; min-width: 0; font: inherit; font-size: 12px;
     padding: 6px 8px; border: 1px solid #c9c7c0; border-radius: 0; }
@@ -289,6 +295,18 @@
   .seg button.on, .seg button.on:hover { background: var(--ink); color: #fff; }
   .seg svg { width: 15px; height: 13px; display: block; }
   .seg.mini button { padding: 4px 8px; }
+  /* instant styled tooltips for the icon-only toolbar controls */
+  [data-tip] { position: relative; }
+  [data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute; top: calc(100% + 7px); left: 50%;
+    transform: translateX(-50%);
+    background: var(--paper); color: var(--ink);
+    border: 1px solid var(--ink);
+    padding: 4px 8px; font-size: 9px; font-weight: 400;
+    letter-spacing: .1em; text-transform: uppercase; white-space: nowrap;
+    box-shadow: 2px 2px 0 rgba(17,17,17,.12);
+    z-index: 60; pointer-events: none; }
 
   /* layout modes (screen and print) */
   #sections.cols-2 { column-count: 2; column-gap: 30px; }
@@ -320,16 +338,16 @@
       <label class="ctl">size <input type="range" id="size" min="16" max="90" value="34"></label>
       <span class="ctl">
         <span class="seg mini" data-seg="cols">
-          <button data-v="1" class="on" title="one column">
+          <button data-v="1" class="on" data-tip="one column">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path d="M1.5 2h12M1.5 5h12M1.5 8h12M1.5 11h12"/>
             </svg></button>
-          <button data-v="2" title="two columns">
+          <button data-v="2" data-tip="two columns">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path d="M1.5 2h5M1.5 5h5M1.5 8h5M1.5 11h5"/>
               <path d="M8.5 2h5M8.5 5h5M8.5 8h5M8.5 11h5"/>
             </svg></button>
-          <button data-v="3" title="three columns">
+          <button data-v="3" data-tip="three columns">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
               <path d="M1 2h3M1 5h3M1 8h3M1 11h3"/>
               <path d="M6 2h3M6 5h3M6 8h3M6 11h3"/>
@@ -337,8 +355,8 @@
             </svg></button>
         </span>
         <span class="seg mini" data-seg="sort">
-          <button data-v="az" class="on" title="sort alphabetically">A–Z</button>
-          <button data-v="date" title="sort by install date, newest first">
+          <button data-v="az" class="on" data-tip="sort alphabetically">A–Z</button>
+          <button data-v="date" data-tip="sort by install date, newest first">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
               <rect x="1.5" y="2.5" width="12" height="9.5" rx="0.5"/>
               <path d="M1.5 5.5h12M4.5 1v3M10.5 1v3"/>
@@ -346,13 +364,13 @@
             </svg></button>
         </span>
         <span class="seg mini" data-seg="wrap">
-          <button data-v="wrap" class="on" title="long headlines wrap onto the next line">
+          <button data-v="wrap" class="on" data-tip="long headlines wrap onto the next line">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
               <path d="M1.5 2.5h12M1.5 6.5h9a2.5 2.5 0 0 1 0 5h-2"/>
               <path d="M10.2 9.7 8.5 11.5l1.7 1.8" stroke-width="1.2"/>
               <path d="M1.5 10.5h4"/>
             </svg></button>
-          <button data-v="clip" title="long headlines get cut off at the edge">
+          <button data-v="clip" data-tip="long headlines get cut off at the edge">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
               <path d="M1.5 2.5h12M1.5 6.5h12M1.5 10.5h12" opacity=".35"/>
               <path d="M1.5 2.5h8.5M1.5 6.5h8.5M1.5 10.5h8.5"/>
@@ -833,9 +851,14 @@ function checkedTags() {
   return new Set(DATA.categories
     .filter(c => c.kind === "tag" && c.visible).map(c => c.id));
 }
+function hiddenTags() {
+  return new Set(DATA.categories
+    .filter(c => c.kind === "tag" && c.hidden).map(c => c.id));
+}
 function fontsIn(catId) {
   const q = $("#filter").value.trim().toLowerCase();
   const ct = checkedTags();
+  const ht = hiddenTags();
   const ga = groupAllowed();
   return DATA.fonts
     .filter(f => inCat(f, catId))
@@ -845,6 +868,8 @@ function fontsIn(catId) {
       // quarantine tags hide their fonts unless that tag is checked
       if ((f.also || []).some(t => EXCLUSIVE_TAGS.includes(t) && !ct.has(t)))
         return false;
+      // a hidden tag pulls its fonts out of every section
+      if ((f.also || []).some(t => ht.has(t))) return false;
       // checked tags act as a filter: only fonts carrying one of them show
       if (ct.size && !(f.also || []).some(t => ct.has(t))) return false;
       return true;
@@ -1034,7 +1059,7 @@ function renderGroupRows(ul) {
     };
     ul.appendChild(li);
   }
-  addInputRow(ul, gs.length ? "add group from selection…" : "select fonts, then name a group here…",
+  addInputRow(ul, gs.length ? "add group…" : "select fonts, then name a group here…",
     async name => {
       if (!SEL.size) { notice("Nothing selected", "Select some fonts first: a group is a saved selection."); return; }
       await api("/api/groups", { op: "add", name, ids: [...SEL] });
@@ -1051,13 +1076,33 @@ function renderCatRow(ul, c) {
     li.draggable = true;
     li.dataset.id = c.id;
     li.dataset.kind = c.kind === "tag" ? "tag" : "style";
+    // ordinary tags get a third state: hidden pulls their fonts from view
+    const canHide = c.kind === "tag" && !EXCLUSIVE_TAGS.includes(c.id);
+    if (canHide && c.hidden) li.classList.add("taghidden");
     li.innerHTML = `<span class="grip">⠿</span>
       <input type="checkbox" ${c.visible ? "checked" : ""}>
       <span class="catname" title="double click to rename">${esc(c.name)}</span>
+      ${canHide ? `<button class="hidetag${c.hidden ? " on" : ""}" title="${c.hidden
+        ? "show these fonts again" : "hide these fonts from every list"}">${c.hidden
+        ? `<svg viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+             <path d="M1.5 4.5C3.2 7.5 5.4 9 8 9s4.8-1.5 6.5-4.5"/>
+             <path d="M3.6 8.3 2.6 10M8 9v2m4.4-2.7 1 1.7"/>
+           </svg>`
+        : `<svg viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
+             <path d="M1.5 6C3.2 3 5.4 1.5 8 1.5S12.8 3 14.5 6C12.8 9 10.6 10.5 8 10.5S3.2 9 1.5 6Z"/>
+             <circle cx="8" cy="6" r="2"/>
+           </svg>`}</button>` : ""}
       <span class="count">${n}</span>
       ${c.id !== "unsorted" ? '<button class="delcat" title="delete category">×</button>' : ""}`;
+    const hid = li.querySelector(".hidetag");
+    if (hid) hid.onclick = () => {
+      c.hidden = !c.hidden;
+      if (c.hidden) c.visible = false;   // hidden and filtering contradict
+      pushCats();
+    };
     li.querySelector("input").onchange = e => {
       c.visible = e.target.checked;
+      if (e.target.checked) delete c.hidden;   // checking a tag unhides it
       if (!e.target.checked) {
         // a group that depends on this box no longer fully shows: flip it off
         for (const g of DATA.groups || []) {
@@ -1292,9 +1337,10 @@ const debouncedFilter = debounce(render, 250);
 $("#mktagbtn").onclick = async () => {
   const q = $("#filter").value.trim().toLowerCase();
   if (!q) return;
+  const ht = hiddenTags();
   const matches = DATA.fonts.filter(f =>
     (f.fullname + " " + f.path).toLowerCase().includes(q)
-    && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)));
+    && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t) || ht.has(t)));
   if (!matches.length) { notice("No matches", "No fonts match this search."); return; }
   const name = await askName("Tag from search",
     `${matches.length} fonts match “${$("#filter").value.trim()}”. They all get this tag.`,
@@ -1448,9 +1494,10 @@ $("#reviewbtn").onclick = () => { renderReview(); $("#reviewmodal").classList.ad
 function closeReview() { $("#reviewmodal").classList.remove("open"); refresh(); }
 function renderReview() {
   const list = $("#revlist");
+  const ht = hiddenTags();
   const items = DATA.fonts
     .filter(f => f.uncertain
-      && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)))
+      && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t) || ht.has(t)))
     .sort((a, b) => a.family.localeCompare(b.family));
   if (!items.length) { list.innerHTML = "<p style='color:#999'>Nothing left to review 🎉</p>"; return; }
   list.innerHTML = "";
@@ -1672,13 +1719,14 @@ $("#updatenote").onclick = async e => {
   }, 800);
 };
 
-/* ---------------- export as PDF (always the selected fonts) ------------- */
+/* ------------- export as PDF (everything visible in the list) ----------- */
 $("#printbtn").onclick = () => {
-  if (!SEL.size) {
-    notice("Nothing selected", "Click a specimen (or drag across several) to choose which fonts go on the sheet, then export.");
+  const n = document.querySelectorAll("#sections .specimen").length;
+  if (!n) {
+    notice("Nothing to export", "No fonts are visible right now. Check some categories or clear your filters, then export.");
     return;
   }
-  $("#exselcount").textContent = SEL.size + " selected fonts, grouped by your visible categories";
+  $("#exselcount").textContent = n + " visible fonts, grouped by your visible categories";
   $("#exportmodal").classList.add("open");
   renderExportPreview();
 };
@@ -1761,7 +1809,6 @@ $("#exgo").onclick = async () => {
   const size = $("#pagesize").value;
   const fsize = +$("#exsize").value || 28;
   const perPage = Math.max(0, +$("#perpage").value || 0);
-  const selOnly = true;
   document.body.classList.toggle("show-paths", $("#expaths").checked);
   document.documentElement.style.setProperty("--size", fsize + "px");
   $("#size").value = Math.min(90, fsize);
@@ -1769,11 +1816,11 @@ $("#exgo").onclick = async () => {
   if (!st) { st = document.createElement("style"); st.id = "pagestyle"; document.head.appendChild(st); }
   st.textContent = `@page { size: ${size}; margin: 14mm; }
     ${LAYOUT.cols > 1 ? `@media print { #sections { column-gap: 8mm; } }` : ""}`;
+  // the sheet is the visible list: every rendered row goes on it
   document.querySelectorAll("#sections .specimen").forEach(row =>
-    row.classList.toggle("exclude", selOnly && !SEL.has(row.dataset.id)));
+    row.classList.remove("exclude"));
   document.querySelectorAll("#sections .cat-section").forEach(sec =>
-    sec.classList.toggle("exclude",
-      ![...sec.querySelectorAll(".specimen")].some(r => !r.classList.contains("exclude"))));
+    sec.classList.toggle("exclude", !sec.querySelector(".specimen")));
   const lines = [...document.querySelectorAll("#sections .specimen:not(.exclude) .line")];
   lines.forEach((el, i) => el.closest(".specimen").classList.toggle(
     "pagebreak", perPage > 0 && (i + 1) % perPage === 0));
