@@ -991,6 +991,8 @@ function renderGroupRows(ul) {
     async name => {
       if (!SEL.size) { notice("Nothing selected", "Select some fonts first: a group is a saved selection."); return; }
       await api("/api/groups", { op: "add", name, ids: [...SEL] });
+      SEL.clear();
+      saveSel();
       refresh();
     });
 }
@@ -1260,6 +1262,8 @@ $("#groupbtn").onclick = async () => {
     "", "save group");
   if (!name) return;
   await api("/api/groups", { op: "add", name, ids: [...SEL] });
+  SEL.clear();          // the group has captured the selection
+  saveSel();
   refresh();
 };
 $("#nm-ok").onclick = () => closeNameModal($("#nm-input").value);
