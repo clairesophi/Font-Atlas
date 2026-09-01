@@ -604,6 +604,12 @@
     <input type="text" id="nm-input" placeholder="name…"
       style="width:100%; font:inherit; font-size:14px; padding:9px 11px;
              border:1px solid var(--ink); border-radius:0">
+    <div class="formrow" id="nm-extra" style="display:none; margin-top:10px">
+      <label style="min-width:auto">or add to</label>
+      <select id="nm-groups" style="flex:1">
+        <option value="" selected disabled>an existing group…</option>
+      </select>
+    </div>
     <div class="actions"><button class="primary" id="nm-ok">save</button></div>
   </div>
 </div>
@@ -680,6 +686,7 @@ function askName(title, sub, defval, okLabel) {
     $("#nm-sub").textContent = sub || "";
     $("#nm-input").value = defval || "";
     $("#nm-ok").textContent = okLabel || "save";
+    $("#nm-extra").style.display = "none";
     $("#namemodal").classList.add("open");
     setTimeout(() => { $("#nm-input").focus(); $("#nm-input").select(); }, 40);
   });
@@ -909,9 +916,15 @@ function makeHead(ul, label, onAll, onNone) {
 }
 
 function setAllVisible(kind, on) {
+  const SYS = ["nonlatin", "nopreview"];
   for (const c of DATA.categories) {
-    if ((c.kind === "tag") !== (kind === "tag")) continue;
-    c.visible = on;   // Non-Latin & Preview Unavailable are tags: untouched
+    if (kind === "style") {
+      // the two app toggles go off under both ALL and NONE: always opt-in
+      if (SYS.includes(c.id)) { c.visible = false; continue; }
+      if (c.kind !== "tag") c.visible = on;
+    } else if (c.kind === "tag" && !SYS.includes(c.id)) {
+      c.visible = on;
+    }
   }
   if (!on) { GRP_ON.clear(); saveGrpOn(); }
   pushCats();
@@ -1310,11 +1323,30 @@ $("#selclear").onclick = () => {
 };
 $("#groupbtn").onclick = async () => {
   if (!SEL.size) return;
-  const name = await askName("Save group",
+  const ids = [...SEL];
+  const p = askName("Save group",
     `${SEL.size} selected fonts become a group you can filter by from the sidebar.`,
     "", "save group");
+  // offer the existing groups as targets too
+  const gs = DATA.groups || [];
+  if (gs.length) {
+    const sel = $("#nm-groups");
+    sel.innerHTML = '<option value="" selected disabled>an existing group…</option>'
+      + gs.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join("");
+    sel.onchange = async () => {
+      const gid = sel.value;
+      if (!gid) return;
+      closeNameModal();
+      await api("/api/groups", { op: "addto", id: gid, ids });
+      SEL.clear();
+      saveSel();
+      refresh();
+    };
+    $("#nm-extra").style.display = "flex";
+  }
+  const name = await p;
   if (!name) return;
-  await api("/api/groups", { op: "add", name, ids: [...SEL] });
+  await api("/api/groups", { op: "add", name, ids });
   SEL.clear();          // the group has captured the selection
   saveSel();
   refresh();
