@@ -156,12 +156,6 @@
     line-height: 1.6; font-family: var(--serif); font-style: italic; }
 
   /* specimen list */
-  #filterbanner { display: flex; align-items: center; gap: 14px;
-    margin: 18px 0 0; padding: 9px 13px; border: 1px solid var(--accent);
-    color: var(--accent); font-size: 11px; letter-spacing: .05em; }
-  #filterbanner a { cursor: pointer; text-decoration: underline;
-    white-space: nowrap; margin-left: auto; }
-  @media print { #filterbanner { display: none; } }
   .cat-section { margin-top: 36px; }
   .cat-head { font-size: 10.5px; font-weight: 700; letter-spacing: .2em;
     text-transform: uppercase; color: var(--ink);
@@ -1247,24 +1241,6 @@ function buildRow(f, c, group) {
 function renderSections() {
   const wrap = $("#sections");
   wrap.innerHTML = "";
-  // when tags or groups narrow the view, say so where it can't be missed
-  const ctNames = [...checkedTags()].map(id => catById(id)?.name || id);
-  const gNames = (DATA.groups || []).filter(g => GRP_ON.has(g.id)).map(g => g.name);
-  if (ctNames.length || gNames.length) {
-    const bits = [];
-    if (gNames.length) bits.push("group" + (gNames.length > 1 ? "s" : "") + " “" + gNames.join("”, “") + "”");
-    if (ctNames.length) bits.push("tag" + (ctNames.length > 1 ? "s" : "") + " “" + ctNames.join("”, “") + "”");
-    const bar = document.createElement("div");
-    bar.id = "filterbanner";
-    bar.innerHTML = `<span>showing only fonts in ${esc(bits.join(" and "))}</span>
-      <a>show everything</a>`;
-    bar.querySelector("a").onclick = () => {
-      GRP_ON.clear();
-      saveGrpOn();
-      setAllVisible("tag", false);
-    };
-    wrap.appendChild(bar);
-  }
   for (const c of DATA.categories) {
     if (c.kind === "tag") continue;   // the sheet's headings are categories only
     if (!c.visible) continue;         // checking a group turns needed boxes on
