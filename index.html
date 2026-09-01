@@ -815,12 +815,16 @@ function fontsIn(catId) {
   const ga = groupAllowed();
   return DATA.fonts
     .filter(f => inCat(f, catId))
-    // quarantine tags hide their fonts everywhere unless that tag is checked
-    .filter(f => !(f.also || []).some(t =>
-      EXCLUSIVE_TAGS.includes(t) && !ct.has(t)))
-    // checked tags act as a filter: only fonts carrying one of them show
-    .filter(f => !ct.size || (f.also || []).some(t => ct.has(t)))
-    .filter(f => !ga || ga.has(f.id))
+    .filter(f => {
+      // a checked group shows every one of its fonts, no questions asked
+      if (ga) return ga.has(f.id);
+      // quarantine tags hide their fonts unless that tag is checked
+      if ((f.also || []).some(t => EXCLUSIVE_TAGS.includes(t) && !ct.has(t)))
+        return false;
+      // checked tags act as a filter: only fonts carrying one of them show
+      if (ct.size && !(f.also || []).some(t => ct.has(t))) return false;
+      return true;
+    })
     .filter(f => !q || (f.fullname + " " + f.path).toLowerCase().includes(q))
     .sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight
                     || a.subfamily.localeCompare(b.subfamily));
@@ -882,15 +886,12 @@ function setAllVisible(kind, on) {
   pushCats();
 }
 
-/* which categories and tags a group's fonts live in */
+/* which categories a group's fonts live in (tags are filters and stay put) */
 function groupNeeds(g) {
-  const idset = new Set(g.ids), cats = new Set(), tags = new Set();
-  for (const f of DATA.fonts) {
-    if (!idset.has(f.id)) continue;
-    cats.add(f.category);
-    for (const t of (f.also || [])) tags.add(t);
-  }
-  return { cats, tags };
+  const idset = new Set(g.ids), cats = new Set();
+  for (const f of DATA.fonts)
+    if (idset.has(f.id)) cats.add(f.category);
+  return cats;
 }
 
 async function setGroupOn(g) {
@@ -898,10 +899,11 @@ async function setGroupOn(g) {
   saveGrpOn();
   const need = groupNeeds(g);
   let changed = false;
-  for (const c of DATA.categories) {
-    const want = c.kind === "tag" ? need.tags.has(c.id) : need.cats.has(c.id);
-    if (want && !c.visible) { c.visible = true; changed = true; }
-  }
+  for (const c of DATA.categories)
+    if (c.kind !== "tag" && need.has(c.id) && !c.visible) {
+      c.visible = true;
+      changed = true;
+    }
   if (changed) await api("/api/categories", { categories: DATA.categories });
   refresh();
 }
@@ -913,10 +915,11 @@ async function groupsAll(on) {
     let changed = false;
     for (const g of DATA.groups || []) {
       const need = groupNeeds(g);
-      for (const c of DATA.categories) {
-        const want = c.kind === "tag" ? need.tags.has(c.id) : need.cats.has(c.id);
-        if (want && !c.visible) { c.visible = true; changed = true; }
-      }
+      for (const c of DATA.categories)
+        if (c.kind !== "tag" && need.has(c.id) && !c.visible) {
+          c.visible = true;
+          changed = true;
+        }
     }
     if (changed) await api("/api/categories", { categories: DATA.categories });
   }
@@ -939,13 +942,15 @@ function addInputRow(ul, placeholder, onCommit) {
 function renderGroupRows(ul) {
   makeHead(ul, "groups", () => groupsAll(true), () => groupsAll(false));
   const gs = DATA.groups || [];
+  const have = new Set(DATA.fonts.map(f => f.id));
   for (const g of gs) {
+    const liveCount = g.ids.filter(i => have.has(i)).length;
     const li = document.createElement("li");
     li.style.cursor = "default";
     li.innerHTML = `
       <input type="checkbox" title="show only the fonts in checked groups" ${GRP_ON.has(g.id) ? "checked" : ""}>
       <span class="catname" title="double click to rename">${esc(g.name)}</span>
-      <span class="count">${g.ids.length}</span>
+      <span class="count" title="fonts currently in the library from this group">${liveCount}</span>
       <button class="delcat" title="delete this group (fonts are untouched)">×</button>`;
     li.querySelector("input").onchange = e => {
       if (e.target.checked) { setGroupOn(g); return; }
@@ -1004,12 +1009,10 @@ function renderCatRow(ul, c) {
       ${c.id !== "unsorted" ? '<button class="delcat" title="delete category">×</button>' : ""}`;
     li.querySelector("input").onchange = e => {
       c.visible = e.target.checked;
-      if (!e.target.checked) {
-        // a group whose fonts need this box no longer fully shows: flip it off
+      if (!e.target.checked && c.kind !== "tag") {
+        // a group whose fonts live in this category no longer fully shows
         for (const g of DATA.groups || []) {
-          if (!GRP_ON.has(g.id)) continue;
-          const need = groupNeeds(g);
-          if ((c.kind === "tag" ? need.tags : need.cats).has(c.id))
+          if (GRP_ON.has(g.id) && groupNeeds(g).has(c.id))
             GRP_ON.delete(g.id);
         }
         saveGrpOn();
