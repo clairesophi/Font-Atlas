@@ -19,8 +19,6 @@
     cursor: pointer; user-select: none; -webkit-user-select: none; }
   #wordmark span { display: inline-block; }
   #wordmark .sp { width: 22px; }
-  .lede { font-family: var(--serif); color: var(--dim);
-    font-size: 19px; margin: 18px 0 40px; }
   .btn { display: inline-block; background: var(--ink); color: #fff;
     text-decoration: none; font-size: 12.5px; letter-spacing: .12em;
     text-transform: uppercase; padding: 15px 26px; }
@@ -48,10 +46,7 @@
 <body>
 <main>
   <div id="wordmark" title="click to reshuffle"><span>F</span><span>O</span><span>N</span><span>T</span><span class="sp">&nbsp;</span><span>A</span><span>T</span><span>L</span><span>A</span><span>S</span></div>
-  <p class="lede" id="lede">index every font on your computer, and view it
-    as a type specimen book. nothing gets moved.</p>
-
-  <p>This tool goes through your whole computer and finds every font you
+  <p style="margin-top:26px">This tool goes through your whole computer and finds every font you
   own, even the ones you downloaded once and never installed. Without touching
   a single file, it sorts them into categories (Serif, Sans, Mono&hellip;)
   and tags (Trial Fonts, Art Deco, Good for Posters, whatever you want). Then
@@ -94,8 +89,6 @@
   function shuffleWordmark() {
     document.querySelectorAll("#wordmark span:not(.sp)").forEach(el =>
       el.style.fontFamily = POOL[Math.floor(Math.random() * POOL.length)]);
-    document.getElementById("lede").style.fontFamily =
-      POOL[Math.floor(Math.random() * POOL.length)];
   }
   document.getElementById("wordmark").onclick = shuffleWordmark;
   shuffleWordmark();
