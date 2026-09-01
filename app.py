@@ -25,7 +25,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -469,15 +469,17 @@ def load_index():
             if c.get("kind") == "tag":
                 c["visible"] = False
         INDEX["settings"]["tags_are_filters"] = True
-    # a font's primary home is always a style category; demote stray tags
+    # a font's primary home is always a style category; demote stray tags,
+    # and its extras are tags only, never other categories
     tag_ids = {c["id"] for c in INDEX["categories"] if c.get("kind") == "tag"}
     for e in INDEX["fonts"].values():
         if e.get("category") in tag_ids:
             tag = e["category"]
             e["category"] = e.get("builtin") or "unsorted"
             e["suggested"] = e["category"]
-            e["also"] = sorted((set(e.get("also", [])) | {tag})
-                               - {e["category"]})
+            e["also"] = sorted(set(e.get("also", [])) | {tag})
+        if e.get("also"):
+            e["also"] = [t for t in e["also"] if t in tag_ids]
 
 
 def save_index():
@@ -803,9 +805,10 @@ def aisort_worker(key, scope, wanted=()):
                         e["category"] = prim
                         e["suggested"] = prim
                         e["uncertain"] = False
-                    # add Claude's tags on top of existing ones, never replace
+                    # add Claude's tags on top of existing ones, never
+                    # replace; extras are tags only, never categories
                     e["also"] = sorted((set(e.get("also", [])) | set(val))
-                                       - {prim, e["category"]})
+                                       - style_ids)
                 save_index()
             AISORT["done"] = min(i + len(batch), len(todo))
     except urllib.error.HTTPError as exc:

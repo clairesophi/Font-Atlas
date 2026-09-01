@@ -1183,10 +1183,9 @@ function buildRow(f, c, group) {
 function renderSections() {
   const wrap = $("#sections");
   wrap.innerHTML = "";
-  const grouping = !!groupAllowed() || checkedTags().size > 0;
   for (const c of DATA.categories) {
     if (c.kind === "tag") continue;   // the sheet's headings are categories only
-    if (!c.visible && !grouping) continue;
+    if (!c.visible) continue;         // checking a group turns needed boxes on
     const fonts = fontsIn(c.id);
     if (!fonts.length) continue;
     const byFam = new Map();
