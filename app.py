@@ -30,7 +30,10 @@ INDEX_PATH = os.path.join(DATA_DIR, "index.json")
 PORT = 8765
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
-CLASSIFIER_VERSION = 4  # bump to force re-classification of unchanged files
+CLASSIFIER_VERSION = 7  # bump to force re-classification of unchanged files
+
+# Tag categories applied automatically by name at scan time.
+AUTO_TAGS = [("trial", "Trial Fonts", ["trial", "demo version", "unlicensed"])]
 
 SKIP_DIR_NAMES = {
     "node_modules", "caches", "cache", ".git", ".svn", ".hg", ".npm",
@@ -139,46 +142,87 @@ def _parse_name_table(tb):
     return {k: v[1] for k, v in best.items()}
 
 
-def _has_latin(data, tables):
-    """Does the font's character map cover basic Latin (A and a)? None = unknown."""
+def _cmap_cover(data, tables):
+    """Return a cover(codepoint)->bool function over all readable cmap
+    subtables, or None if the character map is unreadable."""
     cm = _get_table(data, tables, "cmap")
     if not cm or len(cm) < 4:
         return None
     n = struct.unpack_from(">H", cm, 2)[0]
-    sub = None
+    subs, seen = [], set()
     for i in range(min(n, 30)):
-        pid, eid, off = struct.unpack_from(">HHI", cm, 4 + 8 * i)
-        if pid == 3 and eid in (1, 10):
-            sub = off
+        try:
+            _pid, _eid, off = struct.unpack_from(">HHI", cm, 4 + 8 * i)
+        except struct.error:
             break
-        if pid == 0 and sub is None:
-            sub = off
-    if sub is None or sub + 16 > len(cm):
+        if off in seen or off + 16 > len(cm):
+            continue
+        seen.add(off)
+        fmt = struct.unpack_from(">H", cm, off)[0]
+        if fmt in (4, 12):
+            subs.append((fmt, off))
+    if not subs:
         return None
-    try:
-        fmt = struct.unpack_from(">H", cm, sub)[0]
-        if fmt == 4:
-            seg_x2 = struct.unpack_from(">H", cm, sub + 6)[0]
-            seg = seg_x2 // 2
-            ends = struct.unpack_from(">%dH" % seg, cm, sub + 14)
-            starts = struct.unpack_from(">%dH" % seg, cm, sub + 16 + seg_x2)
-            def cov(ch):
-                return any(s <= ch <= e for s, e in zip(starts, ends))
-            return cov(0x41) and cov(0x61)
-        if fmt == 12:
-            ngroups = struct.unpack_from(">I", cm, sub + 12)[0]
-            def cov(ch):
-                for g in range(min(ngroups, 20000)):
-                    s, e, _ = struct.unpack_from(">III", cm, sub + 16 + 12 * g)
-                    if s <= ch <= e:
+
+    def cov(ch):
+        for fmt, off in subs:
+            try:
+                if fmt == 4:
+                    if ch > 0xFFFE:
+                        continue
+                    seg_x2 = struct.unpack_from(">H", cm, off + 6)[0]
+                    seg = seg_x2 // 2
+                    ends = struct.unpack_from(">%dH" % seg, cm, off + 14)
+                    starts = struct.unpack_from(">%dH" % seg, cm,
+                                                off + 16 + seg_x2)
+                    if any(s <= ch <= e for s, e in zip(starts, ends)):
                         return True
-                    if s > ch:
-                        return False
-                return False
-            return cov(0x41) and cov(0x61)
-    except struct.error:
-        return None
-    return None
+                else:
+                    ngroups = struct.unpack_from(">I", cm, off + 12)[0]
+                    for g in range(min(ngroups, 20000)):
+                        s, e, _ = struct.unpack_from(">III", cm,
+                                                     off + 16 + 12 * g)
+                        if s <= ch <= e:
+                            return True
+                        if s > ch:
+                            break
+            except struct.error:
+                continue
+        return False
+    return cov
+
+
+# For fonts with no Latin letters: probe one codepoint per script and show a
+# native sample instead of a misleading fallback headline.
+SCRIPT_SAMPLES = [
+    (0x1F69A, "\U0001F69A\U0001F600\U0001F308\U0001F389✨"),
+    (0x3042, "あのうちのトラック"),
+    (0xAC00, "안녕, 나는 트럭"),
+    (0x4E00, "永字八法 天地玄黃"),
+    (0x0627, "أبجد هوز حطي"),
+    (0x05D0, "אבגד הוזח"),
+    (0x0915, "कखगघ नमस्ते"),
+    (0x0995, "কখগঘ স্বাগত"),
+    (0x0A15, "ਕਖਗਘ ਸਤਿ"),
+    (0x0A95, "કખગઘ નમસ્તે"),
+    (0x0B95, "கஙசஞ வணக்கம்"),
+    (0x0C15, "కఖగఘ నమస్తే"),
+    (0x0C95, "ಕಖಗಘ ನಮಸ್ಕಾರ"),
+    (0x0D15, "കഖഗഘ നമസ്കാരം"),
+    (0x0D9A, "කඛගඝ ආයුබෝවන්"),
+    (0x0E01, "กขคง สวัสดี"),
+    (0x0E81, "ກຂຄງ ສະບາຍດີ"),
+    (0x0F40, "ཀཁགང བཀྲ་ཤིས"),
+    (0x1000, "ကခဂဃ မင်ဂလာဘါ"),
+    (0x1780, "កខគឃ ជំរាបសួរ"),
+    (0x10D0, "აბგდ გამარჯობა"),
+    (0x0531, "ԱԲԳԴ Բարեւ"),
+    (0x1200, "ሀለሐመ ሰቀበተ"),
+    (0x13A0, "ᎠᎡᎢᎣ ᎤᎥᎦᎧ"),
+    (0x1401, "ᐁᐃᐅᐊ ᐱᐳᐸᑉ"),
+    (0x0391, "ΑΒΓΔ αβγδ"),
+    (0x0410, "АБВГ абвг"),
+]
 
 
 def _parse_face(data, off, is_woff):
@@ -203,6 +247,14 @@ def _parse_face(data, off, is_woff):
     if post and len(post) >= 16:
         fixed_pitch = struct.unpack_from(">I", post, 12)[0] != 0
 
+    cov = _cmap_cover(data, tables)
+    has_latin = (cov(0x41) and cov(0x61)) if cov else None
+    sample = None
+    if cov and has_latin is False:
+        for cp, text in SCRIPT_SAMPLES:
+            if cov(cp):
+                sample = text
+                break
     return {
         "family": family,
         "subfamily": subfamily,
@@ -210,7 +262,8 @@ def _parse_face(data, off, is_woff):
         "weight": weight,
         "panose": panose,
         "fixed_pitch": fixed_pitch,
-        "has_latin": _has_latin(data, tables),
+        "has_latin": has_latin,
+        "sample": sample,
     }
 
 
@@ -220,7 +273,7 @@ def parse_font_file(path):
     stem = os.path.splitext(os.path.basename(path))[0]
     fallback = [{"family": stem, "subfamily": "", "fullname": stem,
                  "weight": 400, "panose": None, "fixed_pitch": False,
-                 "has_latin": None}]
+                 "has_latin": None, "sample": None}]
     if ext in (".woff2", ".dfont"):
         # woff2 needs brotli and dfont a resource-fork parser; classify by name.
         return fallback
@@ -364,6 +417,18 @@ def load_index():
         for c in INDEX["categories"]:
             c.setdefault("kind",
                          "style" if c["id"] in default_ids else "tag")
+    have = {c["id"] for c in INDEX["categories"]}
+    for cid, name, _kw in AUTO_TAGS:
+        if cid not in have:
+            INDEX["categories"].insert(
+                max(0, len(INDEX["categories"]) - 1),
+                {"id": cid, "name": name, "visible": True, "kind": "tag"})
+    for cid, name in (("nonlatin", "Non-Latin"),
+                      ("nopreview", "Preview Unavailable")):
+        if cid not in have:
+            INDEX["categories"].insert(
+                max(0, len(INDEX["categories"]) - 1),
+                {"id": cid, "name": name, "visible": False, "kind": "tag"})
     INDEX.setdefault("fonts", {})
     INDEX.setdefault("settings", {})
     # a font's primary home is always a style category; demote stray tags
@@ -417,6 +482,17 @@ def index_file(path, seen_ids):
         if face["family"].startswith("."):
             continue  # hidden system-internal face inside a collection
         cat, conf = classify(face, fname)
+        txt = (face["fullname"] + " " + fname).lower()
+        auto = [cid for cid, _name, kws in AUTO_TAGS
+                if any(k in txt for k in kws)]
+        if fname.lower().endswith(".dfont"):
+            auto.append("nopreview")  # browsers can never draw these
+        if face.get("has_latin") is False:
+            auto.append("nonlatin")
+            if not face.get("sample"):
+                # no Latin letters and no recognizable script: nothing that
+                # a preview could meaningfully show (math pieces, encodings)
+                auto.append("nopreview")
         fid = font_id(path, i)
         with LOCK:
             old = INDEX["fonts"].get(fid)
@@ -427,12 +503,16 @@ def index_file(path, seen_ids):
                 "family": face["family"], "subfamily": face["subfamily"],
                 "fullname": face["fullname"], "weight": face["weight"],
                 "has_latin": face.get("has_latin"),
-                "also": old.get("also", []) if old else [],
+                "sample": face.get("sample"),
+                "also": sorted(set((old.get("also", []) if old else []))
+                               | set(auto)),
                 "builtin": cat,
-                "suggested": cat, "confidence": round(conf, 2),
-                "category": old["category"] if (old and old.get("locked")) else cat,
+                "suggested": (old.get("suggested", cat) if old else cat),
+                "confidence": round(conf, 2),
+                "category": old["category"] if old else cat,
                 "locked": bool(old and old.get("locked")),
-                "uncertain": conf < 0.7 and not (old and old.get("locked")),
+                "uncertain": (old.get("uncertain", False) if old
+                              else conf < 0.7),
             }
             INDEX["fonts"][fid] = entry
             seen_ids.add(fid)
@@ -543,25 +623,25 @@ def aisort_prompt(cats, batch, wanted):
     if wanted:
         wanted_lines = "\n".join(f"  - {w}" for w in wanted)
         wanted_block = f"""
-The user also specifically wants these thematic groupings (create each as a new thematic category with a short lowercase id if it doesn't exist yet; if one describes a family of groups, like decades, create one category per group as needed):
+The user specifically wants these tags (create each as a new tag with a short lowercase id if it doesn't exist yet; if one describes a family of groups, like decades, create one tag per group as needed):
 {wanted_lines}
 """
     return f"""You are helping organize a personal font library, like the sections of a classic type specimen book.
 
-STYLE categories (id: name) — every font's primary home:
+CATEGORIES (id: name) — mutually exclusive; every font lives in exactly one:
 {style_lines}
 
-THEMATIC categories (id: name) — optional extra memberships (aesthetics, eras, use cases):
+TAGS (id: name) — optional labels; a font can carry several or none:
 {tag_lines}
 {wanted_block}
 Fonts to sort, one per line (id | full name | file name):
 {font_lines}
 
-For every font give a list of category ids. The FIRST must be its single best-fitting STYLE category, chosen only from the style list ("unsorted" is a last resort). After it, add any thematic ids the font genuinely fits. Judge by what you know of the typeface, or its name if unknown. Beyond the user's requested groupings you may propose up to 3 more new thematic categories if several fonts clearly need them.
+For every font give a list of ids. The FIRST must be its single best-fitting CATEGORY, chosen only from the category list ("unsorted" is a last resort). After it, add tag ids, but be selective: a good tag carves out a distinct slice of the library, it must not swallow it. Only tag a font when the tag clearly, specifically applies; most fonts should carry no tags. If a tag would end up on more than about a quarter of these fonts, it is too broad, so apply it only to the strongest examples or skip it. Judge by what you know of the typeface, or its name if unknown. Beyond the user's requested tags you may propose up to 3 new ones when several fonts clearly form a group worth naming.
 
 Reply with ONLY this JSON, nothing else:
-{{"assignments": {{"<font id>": ["<style category id>", "<optional thematic id>", ...], ...}},
- "new_categories": [{{"id": "<short-lowercase-id>", "name": "<Display Name>"}}]}}"""
+{{"assignments": {{"<font id>": ["<category id>", "<optional tag id>", ...], ...}},
+ "new_categories": [{{"id": "<short-lowercase-id>", "name": "<Tag Display Name>"}}]}}"""
 
 
 def aisort_worker(key, scope, wanted=()):
@@ -628,6 +708,34 @@ def aisort_worker(key, scope, wanted=()):
         AISORT["running"] = False
 
 
+def _system_font_dir(path):
+    home = os.path.expanduser("~")
+    roots = ["/System/Library/Fonts", "/Library/Fonts",
+             os.path.join(home, "Library", "Fonts"),
+             "/usr/share/fonts", os.path.join(home, ".fonts")]
+    return any(path.startswith(r + os.sep) or path.startswith(r)
+               for r in roots)
+
+
+def deduped_fonts():
+    """One entry per (family, style); extra copies of the same face are
+    folded into it. Hand-sorted copies win; installed copies preferred."""
+    groups = {}
+    for e in INDEX["fonts"].values():
+        key = (e["family"].lower().strip(), e["subfamily"].lower().strip())
+        groups.setdefault(key, []).append(e)
+    out = []
+    for entries in groups.values():
+        entries.sort(key=lambda e: (not e.get("locked"),
+                                    not _system_font_dir(e["path"]),
+                                    e["path"]))
+        canon = dict(entries[0])
+        if len(entries) > 1:
+            canon["copies"] = [x["path"] for x in entries]
+        out.append(canon)
+    return out
+
+
 # --------------------------------------------------------------------- server
 
 MIME = {".ttf": "font/ttf", ".otf": "font/otf", ".ttc": "font/collection",
@@ -663,11 +771,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
         elif path == "/api/data":
             with LOCK:
-                fonts = list(INDEX["fonts"].values())
+                fonts = deduped_fonts()
                 cats = INDEX["categories"]
                 settings = INDEX.get("settings", {})
             self._json({"fonts": fonts, "categories": cats, "scan": SCAN,
@@ -722,13 +834,15 @@ class Handler(BaseHTTPRequestHandler):
             reset, remove_from = body.get("reset"), body.get("remove_from")
             if body.get("reset_all"):
                 # re-apply the built-in suggestions to every unlocked font
+                auto_ids = {cid for cid, _n, _k in AUTO_TAGS}
                 with LOCK:
                     for e in INDEX["fonts"].values():
                         if not e["locked"]:
                             e["category"] = e.get("builtin") or e["suggested"]
                             e["suggested"] = e["category"]
                             e["uncertain"] = e["confidence"] < 0.7
-                            e["also"] = []
+                            e["also"] = [t for t in e.get("also", [])
+                                         if t in auto_ids]
                     save_index()
                 self._json({"ok": True})
                 return
@@ -821,6 +935,16 @@ class Handler(BaseHTTPRequestHandler):
                           new_categories=0, cancel=False, stopped=False)
             threading.Thread(target=aisort_worker, args=(key, scope, wanted),
                              daemon=True).start()
+            self._json({"ok": True})
+        elif path == "/api/nopreview":
+            # the browser reports fonts its font engine refuses to draw
+            with LOCK:
+                for fid in body.get("ids") or []:
+                    e = INDEX["fonts"].get(fid)
+                    if e:
+                        e["also"] = sorted(set(e.get("also", []))
+                                           | {"nopreview"})
+                save_index()
             self._json({"ok": True})
         elif path == "/api/aisort_stop":
             if AISORT["running"]:

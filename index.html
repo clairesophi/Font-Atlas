@@ -21,7 +21,8 @@
   #sidebar { width: 258px; flex: none; border-right: 1px solid var(--ink);
     padding: 20px 18px 30px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
   body.nosidebar #sidebar { display: none; }
-  #sidetoggle { flex: none; }
+  #sidetoggle { flex: none; font-size: 15px; line-height: 1;
+    padding: 0 12px; align-self: stretch; }
   @media print { #sidetoggle { display: none; } }
   #main { flex: 1; min-width: 0; }
   header { position: sticky; top: 0; z-index: 5; background: var(--paper);
@@ -34,13 +35,12 @@
     padding-bottom: 7px; }
   .tagline { color: var(--dim); font-size: 12.5px; margin: 8px 0 12px;
     font-family: var(--serif); font-style: italic; }
-  /* top block mirrors the header's height so both bottom rules line up */
-  #sidetop { display: flex; flex-direction: column;
-    margin: -20px -18px 16px; padding: 12px 18px 12px;
+  #sidetop { margin: -20px -18px 16px; padding: 12px 18px 12px;
     border-bottom: 1px solid var(--ink); }
-  #sidebtns { display: flex; gap: 5px; margin-top: auto; }
-  #sidebtns button { flex: 1 1 auto; padding: 7px 5px; text-align: center;
-    justify-content: center; white-space: nowrap; font-size: 9.5px;
+  #sidebtns { display: flex; gap: 5px; }
+  #sidebtns button { flex: 1 1 auto; height: 35px; padding: 0 5px;
+    text-align: center; justify-content: center; align-items: center;
+    display: inline-flex; white-space: nowrap; font-size: 9.5px;
     letter-spacing: .06em; }
   #sidebtns .badge { margin-left: 3px; }
 
@@ -81,19 +81,40 @@
   button:disabled { opacity: .3; cursor: default; }
   button:disabled:hover { background: var(--paper); color: var(--ink); }
   .hbtn { min-width: 118px; text-align: center; justify-content: center; }
+  /* the wordmark: one random font per letter, reshuffled every load */
+  /* width matches the search+clear cluster below: 150px + 130px + 7px gap */
+  #wordmark { flex-basis: 100%; display: flex; justify-content: flex-end;
+    user-select: none; -webkit-user-select: none; cursor: pointer; }
+  #wordmark-in { width: 287px; display: flex; justify-content: space-between;
+    align-items: baseline; gap: 4px; font-size: 28px; line-height: 1.15;
+    font-weight: 700; min-height: 34px; overflow: hidden; }
+  #wordmark span { display: inline-block; }
+  #wordmark span.sp { width: 13px; flex: none; }
+  @media print { #wordmark { display: none; } }
+
   /* search + clear over hide-unselected + export, as one cluster */
   #tools2 { flex-basis: 100%; display: grid;
     grid-template-columns: 150px 130px; gap: 7px; justify-content: end; }
   #tools2 input, #tools2 button { width: 100%; text-align: center; }
   #tools2 #filter { text-align: left; }
+  #filterwrap { position: relative; display: block; }
+  #tools2 #mktagbtn { position: absolute; top: calc(100% + 4px); right: 0;
+    width: auto; font-size: 8.5px; padding: 3px 9px; border: 1px solid #c9c7c0;
+    background: var(--paper); color: #666; display: none; z-index: 6;
+    box-shadow: 2px 2px 0 rgba(17,17,17,.12); }
+  #tools2 #mktagbtn:hover { background: var(--ink); color: #fff;
+    border-color: var(--ink); }
   .badge { background: var(--accent); color: #fff; border-radius: 0;
     font-size: 9.5px; padding: 1px 5px; margin-left: 5px;
     font-variant-numeric: tabular-nums; }
   .badge.sel { background: #f2d54d; color: var(--ink); }
 
   /* sidebar categories */
-  #catlist { list-style: none; margin: 0 0 14px; padding: 0;
-    border-top: 1px solid var(--ink); }
+  #catlist { list-style: none; margin: 0 0 14px; padding: 0; }
+  .catgrouphead { font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--dim); padding: 14px 3px 4px !important;
+    border-bottom: 1px solid var(--ink) !important; cursor: default !important; }
+  .catgrouphead:hover { background: none !important; }
   #catlist li { display: flex; align-items: center; gap: 7px; padding: 7px 3px;
     cursor: grab; border-bottom: 1px solid var(--hairline); }
   #catlist li.dragging { opacity: .35; }
@@ -109,9 +130,11 @@
     font-size: 13px; visibility: hidden; }
   #catlist li:hover .delcat { visibility: visible; }
   .delcat:hover { color: var(--accent); background: none; }
-  #addcat { display: flex; gap: 6px; }
+  #addcat { display: flex; gap: 5px; }
   #addcat input { flex: 1; min-width: 0; font: inherit; font-size: 12px;
     padding: 6px 8px; border: 1px solid #c9c7c0; border-radius: 0; }
+  #addcat select { font: inherit; font-size: 10.5px; border: 1px solid #c9c7c0;
+    border-radius: 0; background: var(--paper); color: #555; }
   .hint { color: var(--faint); font-size: 10.5px; margin-top: 16px;
     line-height: 1.6; font-family: var(--serif); font-style: italic; }
 
@@ -127,7 +150,8 @@
     cursor: pointer; user-select: none; -webkit-user-select: none; }
   .specimen:hover { background: var(--hover); }
   .line { font-size: var(--size); line-height: 1.35; word-break: break-word;
-    font-family: sans-serif; min-height: 1.1em; }
+    font-family: sans-serif; min-height: 1.1em; overflow: hidden;
+    max-height: 6em; }
   .line.loading { color: #e2e0db; }
   .line.broken { color: var(--accent); opacity: .55; font-size: 12px;
     font-family: var(--serif); font-style: italic; }
@@ -139,12 +163,21 @@
   .caption .fpath { display: none; color: var(--faint); }
   body.show-paths .caption .fpath { display: inline; }
   .specimen.picked { background: #fdf8e3; }
-  .caption .catctl { margin-left: auto; opacity: 0; }
+  .caption .catctl { margin-left: auto; opacity: 0;
+    display: inline-flex; gap: 9px; }
   .specimen:hover .caption .catctl { opacity: .85; }
+  .caption .tagsel { width: 52px; }
   .caption select { font-size: 10px; letter-spacing: .04em; color: #777;
     border: none; background: none; padding: 1px 0; cursor: pointer;
     width: 105px; border-radius: 0; }
   .caption select:hover { color: var(--ink); }
+  .caption .stylectl { display: inline-flex; align-items: center; gap: 5px;
+    opacity: 1; }
+  .caption .stylesel { width: auto; max-width: 130px; border: 1px solid #ddd;
+    padding: 1px 3px; color: #555; }
+  .caption .stylecount { font-size: 9.5px; color: var(--faint);
+    letter-spacing: .05em; }
+  @media print { .caption .stylectl { display: none; } }
   #empty { margin: 90px auto; max-width: 420px; text-align: center;
     color: #666; font-family: var(--serif); font-size: 14.5px; line-height: 1.6; }
 
@@ -244,8 +277,6 @@
 <div id="app">
   <nav id="sidebar">
     <div id="sidetop">
-      <h1>Font Atlas</h1>
-      <p class="tagline">sort fonts. make categories. see type specimens.</p>
       <div id="sidebtns">
         <button id="scanbtn">scan</button>
         <button id="sortbtn">sort</button>
@@ -254,13 +285,15 @@
     </div>
     <ul id="catlist"></ul>
     <div id="addcat">
-      <input id="newcat" placeholder="new category" >
+      <input id="newcat" placeholder="add new…">
+      <select id="newkind" title="a category is a font's one main home; a tag can hold any number of fonts">
+        <option value="tag">tag</option>
+        <option value="style">category</option>
+      </select>
       <button id="addcatbtn">add</button>
     </div>
     <p class="hint">drag to reorder · checkbox shows or hides a category in the
-      sheet · double click a name to rename · click or drag across specimens to
-      select fonts for export · suggestions are only suggestions, everything
-      can be re-sorted</p>
+      sheet · double click a name to rename</p>
   </nav>
 
   <div id="main">
@@ -303,8 +336,12 @@
             </svg></button>
         </span>
       </span>
+      <div id="wordmark" title="each letter is set in a random font from your library; click for a new hand" onclick="buildWordmark(true)"><span id="wordmark-in"></span></div>
       <div id="tools2">
-        <input id="filter" placeholder="search…">
+        <span id="filterwrap">
+          <input id="filter" placeholder="search…">
+          <button id="mktagbtn" title="create a tag containing every font this search matches">+ tag</button>
+        </span>
         <button id="selclear" title="deselect all fonts">clear <span class="badge sel" id="selcount">0</span></button>
         <button id="hideunsel">hide unselected</button>
         <button id="printbtn" class="primary">export</button>
@@ -369,8 +406,8 @@
     <div class="sortopt" id="sortclaude">
       <b>AI (Claude)</b>
       <span>Uses your own Anthropic API key. Knows typefaces by reputation,
-        takes a wish list of categories, and can file a font under more than
-        one.</span>
+        files each font into exactly one category, and applies your wish list
+        of tags where they genuinely fit.</span>
     </div>
     <div id="sortstatus" style="display:none; margin-top:12px; font-size:12px; color:#555"></div>
   </div>
@@ -380,9 +417,10 @@
 <div class="overlay" id="aimodal">
   <div class="modal">
     <h2>AI sorting mode</h2>
-    <p class="sub">Claude looks at each font's name and sorts it into your
-      categories, proposing new ones where a style clearly needs its own
-      section. Only font names are sent, never the font files.</p>
+    <p class="sub">Claude files every font into exactly one of your style
+      categories (Serif, Sans, Mono…) and applies tags on top: any number
+      per font, only where they genuinely fit. Only font names are sent,
+      never the font files.</p>
     <div class="formrow" id="keyrow">
       <label for="apikey">your Anthropic API key</label>
       <input type="password" id="apikey" placeholder="sk-ant-…">
@@ -399,17 +437,18 @@
       </select>
     </div>
     <div class="formrow" style="align-items:flex-start">
-      <label for="aicats" style="padding-top:6px">categories you want</label>
+      <label for="aicats" style="padding-top:6px">tags you want</label>
       <textarea id="aicats" rows="4" placeholder="one per line, e.g.&#10;Art Deco&#10;Groovy 1970s&#10;Good for posters"></textarea>
     </div>
     <div class="formrow" style="align-items:flex-start">
       <label style="padding-top:3px">ideas</label>
       <div id="aichips"></div>
     </div>
-    <p class="finenote" style="margin-top:2px">Fonts can land in more than one
-      category: each gets one main style category plus any of these it also
-      fits (a font can be both Serif and Art Deco). Leave the box empty to let
-      Claude just sort into the sidebar categories.</p>
+    <p class="finenote" style="margin-top:2px">A tag only goes on fonts that
+      genuinely fit it, so a font can be Serif and tagged Art Deco, while most
+      fonts carry no tags at all. Claude may also invent a few tags of its own
+      when it spots a group worth naming. Leave the box empty to just sort
+      into the sidebar categories.</p>
     <div id="aiprogress" style="display:none; margin-top:12px; font-size:12px; color:#555">
       <div style="display:flex; align-items:center; gap:10px">
         <span id="aiprogtext" style="flex:1"></span>
@@ -586,12 +625,35 @@ async function ensureFont(id, el) {
       document.fonts.add(ff);
       loadedFonts.set(id, "ok");
     } catch (e) {
-      // Remember the failure for this render only, so a transient error
-      // (server restarting, slow disk) heals on the next re-render.
-      loadedFonts.delete(id);
+      // If the server still serves the file fine, the font itself is
+      // unrenderable; otherwise it was a transient hiccup, retry later.
+      let permanent = false;
+      try {
+        permanent = (await fetch("/font/" + id, { cache: "no-store" })).ok;
+      } catch (_) {}
+      if (permanent) {
+        loadedFonts.set(id, "broken");
+        reportNoPreview(id);
+      } else {
+        loadedFonts.delete(id);
+      }
     }
     notifyWaiters(id);
   }
+
+/* batch-report unrenderable fonts, then refresh so they move into the
+   hidden Preview Unavailable tag */
+let npQueue = new Set(), npTimer = null;
+function reportNoPreview(id) {
+  npQueue.add(id);
+  clearTimeout(npTimer);
+  npTimer = setTimeout(async () => {
+    const ids = [...npQueue];
+    npQueue.clear();
+    await api("/api/nopreview", { ids });
+    refresh();
+  }, 1500);
+}
   if (loadedFonts.get(id) === "ok") applyFont(el, id); else markBroken(el);
 }
 const waiters = new Map();
@@ -607,7 +669,51 @@ function markBroken(el) {
   el.textContent = "preview not supported for this file (" + (el.dataset.ext || "") + ") · " + el.dataset.name;
 }
 
+/* ---------------- wordmark: one random font per letter ---------------- */
+async function loadFontById(id) {
+  if (loadedFonts.get(id) === "ok") return true;
+  if (loadedFonts.get(id) === "broken") return false;
+  if (loadedFonts.get(id) === "loading") {
+    await waitFor(id);
+    return loadedFonts.get(id) === "ok";
+  }
+  loadedFonts.set(id, "loading");
+  try {
+    const ff = new FontFace("ff_" + id, `url("/font/${id}")`);
+    await ff.load();
+    document.fonts.add(ff);
+    loadedFonts.set(id, "ok");
+  } catch (e) {
+    loadedFonts.delete(id);
+  }
+  notifyWaiters(id);
+  return loadedFonts.get(id) === "ok";
+}
+
+function buildWordmark(force) {
+  const wrap = $("#wordmark"), el = $("#wordmark-in");
+  if (!el || (wrap.dataset.built && !force)) return;
+  const pool = DATA.fonts.filter(f => f.has_latin !== false
+    && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)));
+  if (!pool.length) { el.textContent = "FONT ATLAS"; return; }
+  wrap.dataset.built = "1";
+  el.innerHTML = "";
+  for (const ch of "FONT ATLAS") {
+    const s = document.createElement("span");
+    s.textContent = ch;
+    el.appendChild(s);
+    if (ch === " ") { s.className = "sp"; continue; }
+    const f = pool[Math.floor(Math.random() * pool.length)];
+    s.title = f.fullname;
+    loadFontById(f.id).then(ok => {
+      if (ok) s.style.fontFamily = `"ff_${f.id}", sans-serif`;
+    });
+  }
+}
+
 /* ---------------- rendering ---------------- */
+/* fonts carrying these tags live only in that tag's own section */
+const EXCLUSIVE_TAGS = ["nopreview", "nonlatin"];
 function catById(id) { return DATA.categories.find(c => c.id === id); }
 function inCat(f, catId) {
   return f.category === catId || (f.also || []).includes(catId);
@@ -616,18 +722,15 @@ function fontsIn(catId) {
   const q = $("#filter").value.trim().toLowerCase();
   return DATA.fonts
     .filter(f => inCat(f, catId))
+    .filter(f => EXCLUSIVE_TAGS.includes(catId)
+      || !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)))
     .filter(f => !HIDE_UNSEL || SEL.has(f.id))
     .filter(f => !q || (f.fullname + " " + f.path).toLowerCase().includes(q))
     .sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight
                     || a.subfamily.localeCompare(b.subfamily));
 }
 
-function alignSideTop() {
-  const st = document.querySelector("#sidetop");
-  const h = document.querySelector("header");
-  if (st && h) st.style.minHeight = h.offsetHeight + "px";
-}
-window.addEventListener("resize", alignSideTop);
+function alignSideTop() { /* the panel no longer mirrors the header height */ }
 
 function render() {
   renderSidebar();
@@ -638,17 +741,34 @@ function render() {
   $("#revcount").textContent = n;
   $("#revcount").style.display = n ? "" : "none";
   $("#empty").style.display = DATA.fonts.length ? "none" : "";
+  buildWordmark();
   alignSideTop();
 }
 
 function renderSidebar() {
   const ul = $("#catlist");
   ul.innerHTML = "";
-  for (const c of DATA.categories) {
+  const groups = [
+    ["categories · one per font", DATA.categories.filter(c => c.kind !== "tag")],
+    ["tags · any number per font", DATA.categories.filter(c => c.kind === "tag")],
+  ];
+  for (const [label, cats] of groups) {
+    if (!cats.length) continue;
+    const head = document.createElement("li");
+    head.className = "catgrouphead";
+    head.textContent = label;
+    ul.appendChild(head);
+    for (const c of cats) renderCatRow(ul, c);
+  }
+}
+
+function renderCatRow(ul, c) {
+  {
     const n = DATA.fonts.filter(f => inCat(f, c.id)).length;
     const li = document.createElement("li");
     li.draggable = true;
     li.dataset.id = c.id;
+    li.dataset.kind = c.kind === "tag" ? "tag" : "style";
     li.innerHTML = `<span class="grip">⠿</span>
       <input type="checkbox" ${c.visible ? "checked" : ""}>
       <span class="catname" title="double click to rename">${esc(c.name)}</span>
@@ -668,6 +788,7 @@ function renderSidebar() {
       e.preventDefault();
       const dragging = ul.querySelector(".dragging");
       if (!dragging || dragging === li) return;
+      if (dragging.dataset.kind !== li.dataset.kind) return; // stay in group
       const rect = li.getBoundingClientRect();
       ul.insertBefore(dragging, e.clientY < rect.top + rect.height / 2 ? li : li.nextSibling);
     };
@@ -686,13 +807,99 @@ function renameCat(li, c) {
 }
 
 function pushCats() {
-  const order = [...$("#catlist").children].map(li => li.dataset.id);
+  const order = [...$("#catlist").children]
+    .filter(li => li.dataset.id).map(li => li.dataset.id);
   DATA.categories.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   api("/api/categories", { categories: DATA.categories }).then(refresh);
 }
 
 function sampleText(f) {
-  return $("#namemode").checked ? f.fullname : ($("#sentence").value || f.fullname);
+  if ($("#namemode").checked) return f.fullname;
+  if (f.has_latin === false && f.sample) return f.sample;
+  return $("#sentence").value || f.fullname;
+}
+
+const GROUP_THRESHOLD = 4; // families with more styles than this get a picker
+
+function pickDefaultFace(list) {
+  const reg = list.find(x =>
+    /^(regular|roman|book|normal|plain)?$/i.test((x.subfamily || "").trim()));
+  if (reg) return reg;
+  return [...list].sort((a, b) =>
+    Math.abs(a.weight - 400) - Math.abs(b.weight - 400))[0];
+}
+
+function buildRow(f, c, group) {
+  const isAlso = f.category !== c.id;
+  const ids = group ? group.map(x => x.id) : [f.id];
+  const row = document.createElement("div");
+  row.className = "specimen" + (SEL.has(f.id) ? " picked" : "");
+  row.dataset.id = f.id;
+  const styleOpts = DATA.categories
+    .filter(x => x.kind !== "tag" && x.id !== f.category)
+    .map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
+  const tagOpts = DATA.categories
+    .filter(x => x.kind === "tag")
+    .map(x => `<option value="${x.id}">${(f.also || []).includes(x.id) ? "✓" : "○"} ${esc(x.name)}</option>`)
+    .join("");
+  const styleSel = group ? `<span class="stylectl">
+      <select class="stylesel" title="this family has ${group.length} styles; pick one to preview">
+        ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(x.subfamily || x.fullname)}</option>`).join("")}
+      </select><span class="stylecount">${group.length} styles</span></span>` : "";
+  const copies = f.copies
+    ? `<span class="flag" style="color:#999" title="this face exists in ${f.copies.length} places:&#10;${esc(f.copies.join("\n"))}">×${f.copies.length}</span>`
+    : "";
+  row.innerHTML = `
+    <div class="line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}" title="click or drag to select">${esc(sampleText(f))}</div>
+    <div class="caption">
+      <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(group ? f.family : f.fullname)}</span>
+      ${styleSel}
+      ${copies}
+      ${f.has_latin === false ? '<span class="flag" style="color:#a80" title="this font has no Latin letters; the preview shows a sample of its own script">non-Latin</span>' : ""}
+      ${f.locked ? '<span title="sorted by hand">✓</span>' : ""}
+      <span class="fpath">${esc(f.path)}</span>
+      <span class="catctl">
+        <select class="catsel" title="change this ${group ? "family's" : "font's"} category (each font has exactly one)">
+          <option value="" selected disabled>change category…</option>
+          ${isAlso ? '<option value="__rm">✕ remove from this category</option>' : ""}
+          ${styleOpts}
+          <option value="__reset">↩ back to automatic (${esc(catById(f.suggested)?.name || f.suggested)})</option>
+        </select>
+        ${tagOpts ? `<select class="tagsel" title="add or remove tags for this ${group ? "family" : "font"} (any number)">
+          <option value="" selected disabled>tags…</option>${tagOpts}
+        </select>` : ""}
+      </span>
+    </div>`;
+  row.querySelector(".catsel").onchange = e => {
+    const v = e.target.value;
+    if (!v) return;
+    let req;
+    if (v === "__reset") req = { ids, reset: true };
+    else if (v === "__rm") req = { ids, remove_from: c.id };
+    else req = { ids, category: v };
+    api("/api/assign", req).then(refresh);
+  };
+  const ts = row.querySelector(".tagsel");
+  if (ts) ts.onchange = () => {
+    const tid = ts.value;
+    if (!tid) return;
+    const req = (f.also || []).includes(tid)
+      ? { ids, remove_from: tid }
+      : { ids, add_to: tid };
+    api("/api/assign", req).then(refresh);
+  };
+  const ss = row.querySelector(".stylesel");
+  if (ss) ss.onchange = () => {
+    const nf = group.find(x => x.id === ss.value);
+    if (nf) row.replaceWith(buildRow(nf, c, group));
+  };
+  row.querySelector(".fname").onclick = () =>
+    api("/api/reveal", { id: f.id });
+  const line = row.querySelector(".line");
+  if (loadedFonts.get(f.id) === "ok") applyFont(line, f.id);
+  else if (loadedFonts.get(f.id) === "broken") markBroken(line);
+  else io.observe(line);
+  return row;
 }
 
 function renderSections() {
@@ -702,54 +909,19 @@ function renderSections() {
     if (!c.visible) continue;
     const fonts = fontsIn(c.id);
     if (!fonts.length) continue;
+    const byFam = new Map();
+    for (const f of fonts) {
+      if (!byFam.has(f.family)) byFam.set(f.family, []);
+      byFam.get(f.family).push(f);
+    }
     const sec = document.createElement("section");
     sec.className = "cat-section";
-    sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span><span class="count">${fonts.length}</span></div>`;
-    for (const f of fonts) {
-      const isAlso = f.category !== c.id;
-      const row = document.createElement("div");
-      row.className = "specimen" + (SEL.has(f.id) ? " picked" : "");
-      row.dataset.id = f.id;
-      const styleOpts = DATA.categories
-        .filter(x => x.kind !== "tag" && x.id !== f.category)
-        .map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("");
-      row.innerHTML = `
-        <div class="line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}" title="click or drag to select">${esc(sampleText(f))}</div>
-        <div class="caption">
-          <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(f.fullname)}</span>
-          ${f.uncertain ? '<span class="flag" title="low-confidence guess">?</span>' : ""}
-          ${f.has_latin === false ? '<span class="flag" style="color:#a80" title="this font has no Latin letters; the preview above is a fallback font">non-Latin</span>' : ""}
-          ${f.locked ? '<span title="sorted by hand">✓</span>' : ""}
-          ${isAlso ? `<span class="flag" style="color:#999" title="this font's main category is ${esc(catById(f.category)?.name || "")}; it also appears here">also</span>` : ""}
-          <span class="fpath">${esc(f.path)}</span>
-          <span class="catctl"><select title="change this font's style category">
-            <option value="" selected disabled>change category…</option>
-            ${isAlso ? '<option value="__rm">✕ remove from this category</option>' : ""}
-            ${styleOpts}
-            <option value="__reset">↩ back to automatic (${esc(catById(f.suggested)?.name || f.suggested)})</option>
-          </select></span>
-        </div>`;
-      row.querySelector("select").onchange = e => {
-        const v = e.target.value;
-        if (!v) return;
-        let req;
-        if (v.startsWith("t:")) {
-          const tid = v.slice(2);
-          req = (f.also || []).includes(tid)
-            ? { ids: [f.id], remove_from: tid }
-            : { ids: [f.id], add_to: tid };
-        } else if (v === "__reset") req = { ids: [f.id], reset: true };
-        else if (v === "__rm") req = { ids: [f.id], remove_from: c.id };
-        else req = { ids: [f.id], category: v };
-        api("/api/assign", req).then(refresh);
-      };
-      row.querySelector(".fname").onclick = () =>
-        api("/api/reveal", { id: f.id });
-      const line = row.querySelector(".line");
-      if (loadedFonts.get(f.id) === "ok") applyFont(line, f.id);
-      else if (loadedFonts.get(f.id) === "broken") markBroken(line);
-      else io.observe(line);
-      sec.appendChild(row);
+    sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span></div>`;
+    for (const list of byFam.values()) {
+      if (list.length > GROUP_THRESHOLD)
+        sec.appendChild(buildRow(pickDefaultFace(list), c, list));
+      else
+        for (const f of list) sec.appendChild(buildRow(f, c, null));
     }
     wrap.appendChild(sec);
   }
@@ -762,13 +934,34 @@ $("#sentence").oninput = () => {
 };
 const debouncedSections = debounce(renderSections, 300);
 $("#namemode").onchange = renderSections;
-$("#filter").oninput = debounce(render, 250);
+$("#filter").oninput = () => {
+  $("#mktagbtn").style.display = $("#filter").value.trim() ? "block" : "none";
+  debouncedFilter();
+};
+const debouncedFilter = debounce(render, 250);
+$("#mktagbtn").onclick = async () => {
+  const q = $("#filter").value.trim().toLowerCase();
+  if (!q) return;
+  const matches = DATA.fonts.filter(f =>
+    (f.fullname + " " + f.path).toLowerCase().includes(q)
+    && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)));
+  if (!matches.length) { alert("No fonts match this search."); return; }
+  const name = prompt(`Name for a tag holding these ${matches.length} fonts:`,
+                      $("#filter").value.trim());
+  if (!name || !name.trim()) return;
+  const cat = { id: "c" + Date.now().toString(36), name: name.trim(),
+                visible: true, kind: "tag" };
+  DATA.categories.splice(DATA.categories.length - 1, 0, cat);
+  await api("/api/categories", { categories: DATA.categories });
+  await api("/api/assign", { ids: matches.map(f => f.id), add_to: cat.id });
+  refresh();
+};
 $("#size").oninput = e => document.documentElement.style.setProperty("--size", e.target.value + "px");
 function debounce(fn, ms) { let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
 
 function setSidebar(open) {
   document.body.classList.toggle("nosidebar", !open);
-  $("#sidetoggle").textContent = open ? "◀" : "▶ categories";
+  $("#sidetoggle").textContent = open ? "◀" : "▶";
   try { localStorage.setItem("fa_sidebar", open ? "open" : "closed"); } catch (e) {}
   alignSideTop();
 }
@@ -818,7 +1011,8 @@ function addCat() {
   const name = $("#newcat").value.trim();
   if (!name) return;
   DATA.categories.splice(DATA.categories.length - 1, 0,
-    { id: "c" + Date.now().toString(36), name, visible: true, kind: "tag" });
+    { id: "c" + Date.now().toString(36), name, visible: true,
+      kind: $("#newkind").value === "style" ? "style" : "tag" });
   $("#newcat").value = "";
   pushCats();
 }
@@ -871,7 +1065,9 @@ $("#reviewbtn").onclick = () => { renderReview(); $("#reviewmodal").classList.ad
 function closeReview() { $("#reviewmodal").classList.remove("open"); refresh(); }
 function renderReview() {
   const list = $("#revlist");
-  const items = DATA.fonts.filter(f => f.uncertain)
+  const items = DATA.fonts
+    .filter(f => f.uncertain
+      && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)))
     .sort((a, b) => a.family.localeCompare(b.family));
   if (!items.length) { list.innerHTML = "<p style='color:#999'>Nothing left to review 🎉</p>"; return; }
   list.innerHTML = "";
@@ -937,6 +1133,11 @@ $("#sortbtn").onclick = () => {
 };
 function closeSort() { $("#sortmodal").classList.remove("open"); }
 $("#sortbuiltin").onclick = async () => {
+  const aiSorted = DATA.fonts.filter(f =>
+    !f.locked && (f.category !== f.builtin || (f.also || []).length)).length;
+  if (aiSorted > 20 && !confirm(
+    `This replaces the current sorting of ${aiSorted} fonts (including anything Claude assigned, and their aesthetic tags) with the built-in suggestions. Hand-sorted fonts keep their place. Continue?`))
+    return;
   const st = $("#sortstatus");
   st.style.display = "block";
   st.textContent = "re-sorting…";
