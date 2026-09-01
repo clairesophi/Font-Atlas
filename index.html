@@ -1070,6 +1070,23 @@ function sampleText(f) {
 
 const GROUP_THRESHOLD = 4; // families with more styles than this get a picker
 
+/* Some fonts bake the weight into the family name (OpenSans-300-normal-0,
+   Raleway-ExtraBold). Strip trailing style words so they group as one. */
+const STYLE_WORDS = /[\s\-_]+(thin|hairline|ultra ?light|extra ?light|light|regular|normal|book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|black|fat|poster|italic|oblique|slanted|condensed|compressed|narrow|wide|extended|expanded|outline|inline|shadow|solid|display|caption|deck|micro|subhead|headline|\d+)$/i;
+function familyKey(name) {
+  let s = name.trim();
+  for (;;) {
+    const t = s.replace(STYLE_WORDS, "").trim();
+    if (t === s || t.length < 3) break;
+    s = t;
+  }
+  return s.toLowerCase().replace(/[\s\-_]+/g, "");
+}
+function groupBaseName(list) {
+  return list.reduce((a, b) => (b.family.length < a.length ? b.family : a),
+                     list[0].family);
+}
+
 function pickDefaultFace(list) {
   const reg = list.find(x =>
     /^(regular|roman|book|normal|plain)?$/i.test((x.subfamily || "").trim()));
@@ -1094,9 +1111,10 @@ function buildRow(f, c, group) {
   const grpOpts = (DATA.groups || [])
     .map(g => `<option value="${g.id}">${g.ids.includes(f.id) ? "✓" : "○"} ${esc(g.name)}</option>`)
     .join("");
+  const multiFam = group && new Set(group.map(x => x.family)).size > 1;
   const styleSel = group ? `<span class="stylectl">
       <select class="stylesel" title="this family has ${group.length} styles; pick one to preview">
-        ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(x.subfamily || x.fullname)}</option>`).join("")}
+        ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(multiFam ? x.fullname : (x.subfamily || x.fullname))}</option>`).join("")}
       </select><span class="stylecount">${group.length} styles</span></span>` : "";
   const copies = f.copies
     ? `<span class="flag" style="color:#999" title="this face exists in ${f.copies.length} places:&#10;${esc(f.copies.join("\n"))}">×${f.copies.length}</span>`
@@ -1104,7 +1122,7 @@ function buildRow(f, c, group) {
   row.innerHTML = `
     <div class="line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}" title="click or drag to select">${esc(sampleText(f))}</div>
     <div class="caption">
-      <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(group ? f.family : f.fullname)}</span>
+      <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(group ? groupBaseName(group) : f.fullname)}</span>
       ${styleSel}
       ${copies}
       ${f.has_latin === false ? '<span class="flag" style="color:#a80" title="this font has no Latin letters; the preview shows a sample of its own script">non-Latin</span>' : ""}
@@ -1195,8 +1213,9 @@ function renderSections() {
     if (!fonts.length) continue;
     const byFam = new Map();
     for (const f of fonts) {
-      if (!byFam.has(f.family)) byFam.set(f.family, []);
-      byFam.get(f.family).push(f);
+      const k = familyKey(f.family);
+      if (!byFam.has(k)) byFam.set(k, []);
+      byFam.get(k).push(f);
     }
     const sec = document.createElement("section");
     sec.className = "cat-section";
