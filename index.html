@@ -47,6 +47,10 @@
   /* AI sort status + the sort-mode chooser */
   #aistatus { font-size: 10px; letter-spacing: .04em; color: var(--accent);
     display: none; align-items: center; gap: 7px; }
+  #updatenote { font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid var(--accent); padding: 4px 9px;
+    text-decoration: none; }
+  #updatenote:hover { background: var(--accent); color: #fff; }
   #aistatus .pbar { width: 90px; margin: 0; }
   .pbar { height: 5px; background: var(--hairline); margin-top: 7px; }
   .pbar i { display: block; height: 100%; width: 0%; background: var(--accent);
@@ -113,8 +117,21 @@
   #catlist { list-style: none; margin: 0 0 14px; padding: 0; }
   .catgrouphead { font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
     color: var(--dim); padding: 14px 3px 4px !important;
-    border-bottom: 1px solid var(--ink) !important; cursor: default !important; }
+    border-bottom: 1px solid var(--ink) !important; cursor: default !important;
+    display: flex; gap: 8px; align-items: baseline; }
   .catgrouphead:hover { background: none !important; }
+  .allnone { cursor: pointer; color: var(--faint); font-size: 8.5px; }
+  .allnone:hover { color: var(--ink); text-decoration: underline; }
+  .grouphint { font-family: var(--serif); font-style: italic;
+    color: var(--faint); font-size: 10.5px; cursor: default !important; }
+  .grouphint:hover { background: none !important; }
+  .addrow { cursor: default !important; border-bottom: none !important; }
+  .addrow:hover { background: none !important; }
+  .addrow input { width: 100%; font: inherit; font-size: 11px; padding: 5px 7px;
+    border: 1px dashed #c9c7c0; border-radius: 0; background: transparent; }
+  .addrow input:focus { border-style: solid; border-color: var(--ink); }
+  #catlist li.dropready { background: #fdf8e3; outline: 1px dashed var(--ink); }
+  .caption .grpsel { width: 62px; }
   #catlist li { display: flex; align-items: center; gap: 7px; padding: 7px 3px;
     cursor: grab; border-bottom: 1px solid var(--hairline); }
   #catlist li.dragging { opacity: .35; }
@@ -284,16 +301,6 @@
       </div>
     </div>
     <ul id="catlist"></ul>
-    <div id="addcat">
-      <input id="newcat" placeholder="add new…">
-      <select id="newkind" title="a category is a font's one main home; a tag can hold any number of fonts">
-        <option value="tag">tag</option>
-        <option value="style">category</option>
-      </select>
-      <button id="addcatbtn">add</button>
-    </div>
-    <p class="hint">drag to reorder · checkbox shows or hides a category in the
-      sheet · double click a name to rename</p>
   </nav>
 
   <div id="main">
@@ -343,12 +350,14 @@
           <button id="mktagbtn" title="create a tag containing every font this search matches">+ tag</button>
         </span>
         <button id="selclear" title="deselect all fonts">clear <span class="badge sel" id="selcount">0</span></button>
-        <button id="hideunsel">hide unselected</button>
+        <button id="groupbtn" title="save the current selection as a named group">save group</button>
         <button id="printbtn" class="primary">export</button>
       </div>
       <span id="aistatus"><span id="aistatustext"></span>
         <span class="pbar"><i id="aistatusfill"></i></span>
         <button id="aistophdr" style="font-size:8.5px;padding:2px 7px">stop</button></span>
+      <a id="updatenote" style="display:none" target="_blank" rel="noopener"
+         title="a newer Font Atlas is out; your library and groups are kept when you update">new version ↓</a>
     </header>
     <div id="content">
       <div id="printhead">
@@ -555,6 +564,33 @@
   </div>
 </div>
 
+<!-- confirm / notice dialog -->
+<div class="overlay" id="confmodal">
+  <div class="modal" style="max-width: 380px">
+    <div class="modal-top">
+      <h2 id="cf-title">confirm</h2>
+      <button id="cf-cancel">cancel</button>
+    </div>
+    <p class="sub" id="cf-sub" style="margin-bottom:4px"></p>
+    <div class="actions"><button class="primary" id="cf-ok">ok</button></div>
+  </div>
+</div>
+
+<!-- naming dialog (groups, tags from search) -->
+<div class="overlay" id="namemodal">
+  <div class="modal" style="max-width: 380px">
+    <div class="modal-top">
+      <h2 id="nm-title">name</h2>
+      <button onclick="closeNameModal()">cancel</button>
+    </div>
+    <p class="sub" id="nm-sub"></p>
+    <input type="text" id="nm-input" placeholder="name…"
+      style="width:100%; font:inherit; font-size:14px; padding:9px 11px;
+             border:1px solid var(--ink); border-radius:0">
+    <div class="actions"><button class="primary" id="nm-ok">save</button></div>
+  </div>
+</div>
+
 <!-- review modal -->
 <div class="overlay" id="reviewmodal">
   <div class="modal">
@@ -577,14 +613,65 @@ try { SEL = new Set(JSON.parse(localStorage.getItem("fa_selected") || "[]")); } 
 function saveSel() {
   try { localStorage.setItem("fa_selected", JSON.stringify([...SEL])); } catch (e) {}
 }
-let HIDE_UNSEL = false;
+let dragFontIds = null;   // fonts being dragged (by name) toward a group
+let GRP_ON = new Set();   // checked groups filter the whole sheet
+try { GRP_ON = new Set(JSON.parse(localStorage.getItem("fa_groups_on") || "[]")); } catch (e) {}
+function saveGrpOn() {
+  try { localStorage.setItem("fa_groups_on", JSON.stringify([...GRP_ON])); } catch (e) {}
+}
+function groupAllowed() {
+  const active = (DATA.groups || []).filter(g => GRP_ON.has(g.id));
+  if (!active.length) return null;   // no group checked: show everything
+  const s = new Set();
+  for (const g of active) for (const i of g.ids) s.add(i);
+  return s;
+}
 function renderSelInfo() {
   document.querySelector("#selcount").textContent = SEL.size;
   document.querySelector("#selclear").disabled = !SEL.size;
-  const hu = document.querySelector("#hideunsel");
-  if (!SEL.size) HIDE_UNSEL = false;
-  hu.disabled = !SEL.size;
-  hu.textContent = HIDE_UNSEL ? "show unselected" : "hide unselected";
+  document.querySelector("#groupbtn").disabled = !SEL.size;
+}
+
+/* styled confirm / notice dialog, replaces browser confirm() and alert() */
+let cfResolve = null;
+function askConfirm(title, sub, okLabel = "ok", showCancel = true) {
+  return new Promise(res => {
+    cfResolve = res;
+    $("#cf-title").textContent = title;
+    $("#cf-sub").textContent = sub || "";
+    $("#cf-ok").textContent = okLabel;
+    $("#cf-cancel").style.display = showCancel ? "" : "none";
+    $("#confmodal").classList.add("open");
+  });
+}
+function closeConfirm(v) {
+  $("#confmodal").classList.remove("open");
+  const r = cfResolve;
+  cfResolve = null;
+  if (r) r(!!v);
+}
+function notice(title, sub) { return askConfirm(title, sub, "ok", false); }
+document.querySelector("#cf-ok").onclick = () => closeConfirm(true);
+document.querySelector("#cf-cancel").onclick = () => closeConfirm(false);
+
+/* styled naming dialog, replaces the browser prompt */
+let nmResolve = null;
+function askName(title, sub, defval, okLabel) {
+  return new Promise(res => {
+    nmResolve = res;
+    $("#nm-title").textContent = title;
+    $("#nm-sub").textContent = sub || "";
+    $("#nm-input").value = defval || "";
+    $("#nm-ok").textContent = okLabel || "save";
+    $("#namemodal").classList.add("open");
+    setTimeout(() => { $("#nm-input").focus(); $("#nm-input").select(); }, 40);
+  });
+}
+function closeNameModal(val) {
+  $("#namemodal").classList.remove("open");
+  const r = nmResolve;
+  nmResolve = null;
+  if (r) r(val && val.trim() ? val.trim() : null);
 }
 
 const $ = s => document.querySelector(s);
@@ -640,6 +727,8 @@ async function ensureFont(id, el) {
     }
     notifyWaiters(id);
   }
+  if (loadedFonts.get(id) === "ok") applyFont(el, id); else markBroken(el);
+}
 
 /* batch-report unrenderable fonts, then refresh so they move into the
    hidden Preview Unavailable tag */
@@ -653,8 +742,6 @@ function reportNoPreview(id) {
     await api("/api/nopreview", { ids });
     refresh();
   }, 1500);
-}
-  if (loadedFonts.get(id) === "ok") applyFont(el, id); else markBroken(el);
 }
 const waiters = new Map();
 function waitFor(id) { return new Promise(r => (waiters.get(id) || waiters.set(id, []).get(id)).push(r)); }
@@ -718,13 +805,22 @@ function catById(id) { return DATA.categories.find(c => c.id === id); }
 function inCat(f, catId) {
   return f.category === catId || (f.also || []).includes(catId);
 }
+function checkedTags() {
+  return new Set(DATA.categories
+    .filter(c => c.kind === "tag" && c.visible).map(c => c.id));
+}
 function fontsIn(catId) {
   const q = $("#filter").value.trim().toLowerCase();
+  const ct = checkedTags();
+  const ga = groupAllowed();
   return DATA.fonts
     .filter(f => inCat(f, catId))
-    .filter(f => EXCLUSIVE_TAGS.includes(catId)
-      || !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)))
-    .filter(f => !HIDE_UNSEL || SEL.has(f.id))
+    // quarantine tags hide their fonts everywhere unless that tag is checked
+    .filter(f => !(f.also || []).some(t =>
+      EXCLUSIVE_TAGS.includes(t) && !ct.has(t)))
+    // checked tags act as a filter: only fonts carrying one of them show
+    .filter(f => !ct.size || (f.also || []).some(t => ct.has(t)))
+    .filter(f => !ga || ga.has(f.id))
     .filter(f => !q || (f.fullname + " " + f.path).toLowerCase().includes(q))
     .sort((a, b) => a.family.localeCompare(b.family) || a.weight - b.weight
                     || a.subfamily.localeCompare(b.subfamily));
@@ -737,6 +833,11 @@ function render() {
   renderSections();
   renderMode();
   renderSelInfo();
+  const up = $("#updatenote");
+  if (DATA.update && DATA.update.available) {
+    up.style.display = "";
+    up.href = DATA.update.url;
+  } else up.style.display = "none";
   const n = DATA.fonts.filter(f => f.uncertain).length;
   $("#revcount").textContent = n;
   $("#revcount").style.display = n ? "" : "none";
@@ -749,17 +850,147 @@ function renderSidebar() {
   const ul = $("#catlist");
   ul.innerHTML = "";
   const groups = [
-    ["categories · one per font", DATA.categories.filter(c => c.kind !== "tag")],
-    ["tags · any number per font", DATA.categories.filter(c => c.kind === "tag")],
+    ["categories", "style", DATA.categories.filter(c => c.kind !== "tag")],
+    ["tags", "tag", DATA.categories.filter(c => c.kind === "tag")],
   ];
-  for (const [label, cats] of groups) {
-    if (!cats.length) continue;
-    const head = document.createElement("li");
-    head.className = "catgrouphead";
-    head.textContent = label;
-    ul.appendChild(head);
+  for (const [label, kind, cats] of groups) {
+    makeHead(ul, label,
+      () => setAllVisible(kind, true),
+      () => setAllVisible(kind, false));
     for (const c of cats) renderCatRow(ul, c);
+    addInputRow(ul, "add " + (kind === "tag" ? "tag" : "category") + "…", name => {
+      DATA.categories.splice(DATA.categories.length - 1, 0,
+        { id: "c" + Date.now().toString(36), name, visible: kind !== "tag", kind });
+      pushCats();
+    });
   }
+  renderGroupRows(ul);
+}
+
+function makeHead(ul, label, onAll, onNone) {
+  const li = document.createElement("li");
+  li.className = "catgrouphead";
+  li.innerHTML = `<span style="flex:1">${label}</span>
+    <a class="allnone">all</a><a class="allnone">none</a>`;
+  const [a, n] = li.querySelectorAll(".allnone");
+  a.onclick = onAll;
+  n.onclick = onNone;
+  ul.appendChild(li);
+}
+
+function setAllVisible(kind, on) {
+  for (const c of DATA.categories)
+    if ((c.kind === "tag") === (kind === "tag")) c.visible = on;
+  if (!on) { GRP_ON.clear(); saveGrpOn(); }
+  pushCats();
+}
+
+/* which categories and tags a group's fonts live in */
+function groupNeeds(g) {
+  const idset = new Set(g.ids), cats = new Set(), tags = new Set();
+  for (const f of DATA.fonts) {
+    if (!idset.has(f.id)) continue;
+    cats.add(f.category);
+    for (const t of (f.also || [])) tags.add(t);
+  }
+  return { cats, tags };
+}
+
+async function setGroupOn(g) {
+  GRP_ON.add(g.id);
+  saveGrpOn();
+  const need = groupNeeds(g);
+  let changed = false;
+  for (const c of DATA.categories) {
+    const want = c.kind === "tag" ? need.tags.has(c.id) : need.cats.has(c.id);
+    if (want && !c.visible) { c.visible = true; changed = true; }
+  }
+  if (changed) await api("/api/categories", { categories: DATA.categories });
+  refresh();
+}
+
+async function groupsAll(on) {
+  GRP_ON = on ? new Set((DATA.groups || []).map(g => g.id)) : new Set();
+  saveGrpOn();
+  if (on) {
+    let changed = false;
+    for (const g of DATA.groups || []) {
+      const need = groupNeeds(g);
+      for (const c of DATA.categories) {
+        const want = c.kind === "tag" ? need.tags.has(c.id) : need.cats.has(c.id);
+        if (want && !c.visible) { c.visible = true; changed = true; }
+      }
+    }
+    if (changed) await api("/api/categories", { categories: DATA.categories });
+  }
+  refresh();
+}
+
+function addInputRow(ul, placeholder, onCommit) {
+  const li = document.createElement("li");
+  li.className = "addrow";
+  li.innerHTML = `<input placeholder="${placeholder}">`;
+  const inp = li.querySelector("input");
+  inp.onkeydown = e => {
+    e.stopPropagation();
+    if (e.key === "Enter" && inp.value.trim()) { onCommit(inp.value.trim()); inp.value = ""; }
+    if (e.key === "Escape") inp.value = "";
+  };
+  ul.appendChild(li);
+}
+
+function renderGroupRows(ul) {
+  makeHead(ul, "groups", () => groupsAll(true), () => groupsAll(false));
+  const gs = DATA.groups || [];
+  for (const g of gs) {
+    const li = document.createElement("li");
+    li.style.cursor = "default";
+    li.innerHTML = `
+      <input type="checkbox" title="show only the fonts in checked groups" ${GRP_ON.has(g.id) ? "checked" : ""}>
+      <span class="catname" title="double click to rename">${esc(g.name)}</span>
+      <span class="count">${g.ids.length}</span>
+      <button class="delcat" title="delete this group (fonts are untouched)">×</button>`;
+    li.querySelector("input").onchange = e => {
+      if (e.target.checked) { setGroupOn(g); return; }
+      GRP_ON.delete(g.id);
+      saveGrpOn();
+      render();
+    };
+    li.querySelector(".catname").ondblclick = async () => {
+      const name = await askName("Rename group", "", g.name, "rename");
+      if (name) {
+        await api("/api/groups", { op: "ren", id: g.id, name });
+        refresh();
+      }
+    };
+    li.querySelector(".delcat").onclick = async () => {
+      if (!await askConfirm(`Delete the group “${g.name}”?`,
+        "The fonts themselves are untouched.", "delete")) return;
+      GRP_ON.delete(g.id);
+      saveGrpOn();
+      await api("/api/groups", { op: "del", id: g.id });
+      refresh();
+    };
+    li.ondragover = e => {
+      if (dragFontIds) { e.preventDefault(); li.classList.add("dropready"); }
+    };
+    li.ondragleave = () => li.classList.remove("dropready");
+    li.ondrop = async e => {
+      e.preventDefault();
+      li.classList.remove("dropready");
+      if (!dragFontIds) return;
+      await api("/api/groups", { op: "addto", id: g.id, ids: dragFontIds });
+      dragFontIds = null;
+      refresh();
+    };
+    ul.appendChild(li);
+  }
+  addInputRow(ul, gs.length ? "add group from selection…" : "select fonts, then name a group here…",
+    async name => {
+      if (!SEL.size) { notice("Nothing selected", "Select some fonts first: a group is a saved selection."); return; }
+      await api("/api/groups", { op: "add", name, ids: [...SEL] });
+      refresh();
+    });
 }
 
 function renderCatRow(ul, c) {
@@ -774,11 +1005,27 @@ function renderCatRow(ul, c) {
       <span class="catname" title="double click to rename">${esc(c.name)}</span>
       <span class="count">${n}</span>
       ${c.id !== "unsorted" ? '<button class="delcat" title="delete category">×</button>' : ""}`;
-    li.querySelector("input").onchange = e => { c.visible = e.target.checked; pushCats(); };
+    li.querySelector("input").onchange = e => {
+      c.visible = e.target.checked;
+      if (!e.target.checked) {
+        // a group whose fonts need this box no longer fully shows: flip it off
+        for (const g of DATA.groups || []) {
+          if (!GRP_ON.has(g.id)) continue;
+          const need = groupNeeds(g);
+          if ((c.kind === "tag" ? need.tags : need.cats).has(c.id))
+            GRP_ON.delete(g.id);
+        }
+        saveGrpOn();
+      }
+      pushCats();
+    };
     li.querySelector(".catname").ondblclick = () => renameCat(li, c);
     const del = li.querySelector(".delcat");
-    if (del) del.onclick = () => {
-      if (!confirm(`Delete "${c.name}"? Its fonts move to Unsorted (files untouched).`)) return;
+    if (del) del.onclick = async () => {
+      if (!await askConfirm(`Delete “${c.name}”?`,
+        c.kind === "tag" ? "The tag comes off its fonts; files untouched."
+                         : "Its fonts move to Unsorted; files untouched.",
+        "delete")) return;
       DATA.categories = DATA.categories.filter(x => x.id !== c.id);
       pushCats();
     };
@@ -842,6 +1089,9 @@ function buildRow(f, c, group) {
     .filter(x => x.kind === "tag")
     .map(x => `<option value="${x.id}">${(f.also || []).includes(x.id) ? "✓" : "○"} ${esc(x.name)}</option>`)
     .join("");
+  const grpOpts = (DATA.groups || [])
+    .map(g => `<option value="${g.id}">${g.ids.includes(f.id) ? "✓" : "○"} ${esc(g.name)}</option>`)
+    .join("");
   const styleSel = group ? `<span class="stylectl">
       <select class="stylesel" title="this family has ${group.length} styles; pick one to preview">
         ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(x.subfamily || x.fullname)}</option>`).join("")}
@@ -865,9 +1115,14 @@ function buildRow(f, c, group) {
           ${styleOpts}
           <option value="__reset">↩ back to automatic (${esc(catById(f.suggested)?.name || f.suggested)})</option>
         </select>
-        ${tagOpts ? `<select class="tagsel" title="add or remove tags for this ${group ? "family" : "font"} (any number)">
+        <select class="tagsel" title="add or remove tags for this ${group ? "family" : "font"} (any number)">
           <option value="" selected disabled>tags…</option>${tagOpts}
-        </select>` : ""}
+          <option value="__newtag">＋ new tag…</option>
+        </select>
+        <select class="grpsel" title="add or remove this ${group ? "family" : "font"} from your groups">
+          <option value="" selected disabled>groups…</option>${grpOpts}
+          <option value="__newgrp">＋ new group…</option>
+        </select>
       </span>
     </div>`;
   row.querySelector(".catsel").onchange = e => {
@@ -883,11 +1138,37 @@ function buildRow(f, c, group) {
   if (ts) ts.onchange = () => {
     const tid = ts.value;
     if (!tid) return;
+    if (tid === "__newtag") { createTagAndApply(ids); return; }
     const req = (f.also || []).includes(tid)
       ? { ids, remove_from: tid }
       : { ids, add_to: tid };
     api("/api/assign", req).then(refresh);
   };
+  const gs = row.querySelector(".grpsel");
+  if (gs) gs.onchange = async () => {
+    const gid = gs.value;
+    if (!gid) return;
+    if (gid === "__newgrp") {
+      const name = await askName("New group",
+        group ? "This whole family goes in." : "This font goes in.",
+        "", "create group");
+      if (!name) return;
+      await api("/api/groups", { op: "add", name, ids });
+      refresh();
+      return;
+    }
+    const g = (DATA.groups || []).find(x => x.id === gid);
+    const member = g && g.ids.includes(f.id);
+    await api("/api/groups", { op: member ? "rmfrom" : "addto", id: gid, ids });
+    refresh();
+  };
+  const fn = row.querySelector(".fname");
+  fn.draggable = true;
+  fn.ondragstart = e => {
+    dragFontIds = (SEL.has(f.id) && SEL.size > 1) ? [...SEL] : ids;
+    e.dataTransfer.effectAllowed = "copy";
+  };
+  fn.ondragend = () => { dragFontIds = null; };
   const ss = row.querySelector(".stylesel");
   if (ss) ss.onchange = () => {
     const nf = group.find(x => x.id === ss.value);
@@ -905,8 +1186,10 @@ function buildRow(f, c, group) {
 function renderSections() {
   const wrap = $("#sections");
   wrap.innerHTML = "";
+  const grouping = !!groupAllowed() || checkedTags().size > 0;
   for (const c of DATA.categories) {
-    if (!c.visible) continue;
+    if (c.kind === "tag") continue;   // the sheet's headings are categories only
+    if (!c.visible && !grouping) continue;
     const fonts = fontsIn(c.id);
     if (!fonts.length) continue;
     const byFam = new Map();
@@ -945,11 +1228,12 @@ $("#mktagbtn").onclick = async () => {
   const matches = DATA.fonts.filter(f =>
     (f.fullname + " " + f.path).toLowerCase().includes(q)
     && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)));
-  if (!matches.length) { alert("No fonts match this search."); return; }
-  const name = prompt(`Name for a tag holding these ${matches.length} fonts:`,
-                      $("#filter").value.trim());
-  if (!name || !name.trim()) return;
-  const cat = { id: "c" + Date.now().toString(36), name: name.trim(),
+  if (!matches.length) { notice("No matches", "No fonts match this search."); return; }
+  const name = await askName("Tag from search",
+    `${matches.length} fonts match “${$("#filter").value.trim()}”. They all get this tag.`,
+    $("#filter").value.trim(), "create tag");
+  if (!name) return;
+  const cat = { id: "c" + Date.now().toString(36), name,
                 visible: true, kind: "tag" };
   DATA.categories.splice(DATA.categories.length - 1, 0, cat);
   await api("/api/categories", { categories: DATA.categories });
@@ -968,10 +1252,22 @@ function setSidebar(open) {
 $("#sidetoggle").onclick = () =>
   setSidebar(document.body.classList.contains("nosidebar"));
 $("#selclear").onclick = () => {
-  SEL.clear(); HIDE_UNSEL = false; saveSel(); render();
+  SEL.clear(); saveSel(); render();
 };
-$("#hideunsel").onclick = () => {
-  HIDE_UNSEL = !HIDE_UNSEL; render();
+$("#groupbtn").onclick = async () => {
+  if (!SEL.size) return;
+  const name = await askName("Save group",
+    `${SEL.size} selected fonts become a group you can filter by from the sidebar.`,
+    "", "save group");
+  if (!name) return;
+  await api("/api/groups", { op: "add", name, ids: [...SEL] });
+  refresh();
+};
+$("#nm-ok").onclick = () => closeNameModal($("#nm-input").value);
+$("#nm-input").onkeydown = e => {
+  if (e.key === "Enter" || e.key === "Return") closeNameModal($("#nm-input").value);
+  if (e.key === "Escape") closeNameModal();
+  e.stopPropagation();
 };
 
 /* click a specimen to select it; drag across several to paint-select */
@@ -998,23 +1294,22 @@ window.addEventListener("pointerup", () => {
   if (dragSel === null) return;
   dragSel = null;
   saveSel();
-  const wasHiding = HIDE_UNSEL;
   renderSelInfo();
-  if (wasHiding) { render(); return; }
   // sync duplicate rows (a font can appear in several categories)
   document.querySelectorAll("#sections .specimen").forEach(r =>
     r.classList.toggle("picked", SEL.has(r.dataset.id)));
 });
-$("#addcatbtn").onclick = addCat;
-$("#newcat").onkeydown = e => { if (e.key === "Enter") addCat(); };
-function addCat() {
-  const name = $("#newcat").value.trim();
+async function createTagAndApply(ids) {
+  const name = await askName("New tag",
+    "It goes on this font right away; add it to others from their tags… menu.",
+    "", "create tag");
   if (!name) return;
-  DATA.categories.splice(DATA.categories.length - 1, 0,
-    { id: "c" + Date.now().toString(36), name, visible: true,
-      kind: $("#newkind").value === "style" ? "style" : "tag" });
-  $("#newcat").value = "";
-  pushCats();
+  const cat = { id: "c" + Date.now().toString(36), name,
+                visible: true, kind: "tag" };
+  DATA.categories.splice(DATA.categories.length - 1, 0, cat);
+  await api("/api/categories", { categories: DATA.categories });
+  await api("/api/assign", { ids, add_to: cat.id });
+  refresh();
 }
 
 /* ---------------- scan ---------------- */
@@ -1035,7 +1330,7 @@ $("#startscan").onclick = async () => {
   if ($("#homechk").checked) roots.push(DATA.home);
   const custom = $("#customroot").value.trim();
   if (custom) roots.push(custom);
-  if (!roots.length) return alert("Pick at least one folder to scan.");
+  if (!roots.length) return notice("Pick a folder", "Pick at least one folder to scan.");
   await api("/api/scan", { roots });
   showProgress();
 };
@@ -1135,9 +1430,9 @@ function closeSort() { $("#sortmodal").classList.remove("open"); }
 $("#sortbuiltin").onclick = async () => {
   const aiSorted = DATA.fonts.filter(f =>
     !f.locked && (f.category !== f.builtin || (f.also || []).length)).length;
-  if (aiSorted > 20 && !confirm(
-    `This replaces the current sorting of ${aiSorted} fonts (including anything Claude assigned, and their aesthetic tags) with the built-in suggestions. Hand-sorted fonts keep their place. Continue?`))
-    return;
+  if (aiSorted > 20 && !await askConfirm("Re-sort everything?",
+    `This replaces the current sorting of ${aiSorted} fonts (including anything Claude assigned, and their tags) with the built-in suggestions. Hand-sorted fonts keep their place.`,
+    "re-sort")) return;
   const st = $("#sortstatus");
   st.style.display = "block";
   st.textContent = "re-sorting…";
@@ -1196,7 +1491,19 @@ function openAI() {
   $("#keyrow").style.display = DATA.has_key ? "none" : "flex";
   $("#wsid").value = DATA.workspace_id || "";
   $("#aiforget").style.display = DATA.has_key ? "" : "none";
-  try { $("#aicats").value = localStorage.getItem("fa_aicats") || $("#aicats").value; } catch (e) {}
+  // prepopulate with the tags that already exist, plus anything typed before
+  const autoIds = ["trial", "nonlatin", "nopreview"];
+  const lines = DATA.categories
+    .filter(x => x.kind === "tag" && !autoIds.includes(x.id))
+    .map(x => x.name);
+  const seenL = new Set(lines.map(x => x.toLowerCase()));
+  try {
+    for (const l of (localStorage.getItem("fa_aicats") || "").split("\n")) {
+      const t = l.trim();
+      if (t && !seenL.has(t.toLowerCase())) { lines.push(t); seenL.add(t.toLowerCase()); }
+    }
+  } catch (e) {}
+  $("#aicats").value = lines.join("\n");
   $("#aiclose").textContent = "close";
   $("#airun").disabled = !!(DATA.aisort && DATA.aisort.running);
   $("#aiprogress").style.display = "none";
@@ -1223,12 +1530,12 @@ $("#aiforget").onclick = async () => {
 };
 $("#airun").onclick = async () => {
   const key = $("#apikey").value.trim();
-  if (!DATA.has_key && !key) { alert("Paste your Anthropic API key first (sk-ant-…)."); return; }
+  if (!DATA.has_key && !key) { notice("API key needed", "Paste your Anthropic API key first (sk-ant-…)."); return; }
   const ws = $("#wsid").value.trim();
   if (ws && !ws.startsWith("wrkspc_")) {
-    alert(ws.startsWith("sk-ant")
-      ? "That's your API key. The workspace ID is a different string that starts with wrkspc_ — find it at console.anthropic.com/settings/workspaces (click your workspace, copy its ID)."
-      : "A workspace ID starts with wrkspc_ — find it at console.anthropic.com/settings/workspaces. Leave the field empty if you're not sure you need one.");
+    notice("Workspace ID", ws.startsWith("sk-ant")
+      ? "That's your API key. The workspace ID is a different string that starts with wrkspc_: find it at console.anthropic.com/settings/workspaces (click your workspace, copy its ID)."
+      : "A workspace ID starts with wrkspc_: find it at console.anthropic.com/settings/workspaces. Leave the field empty if you're not sure you need one.");
     return;
   }
   const settings = { mode: "ai", workspace_id: $("#wsid").value };
@@ -1239,7 +1546,7 @@ $("#airun").onclick = async () => {
   try { localStorage.setItem("fa_aicats", $("#aicats").value); } catch (e) {}
   const r = await api("/api/aisort", { scope: $("#aiscope").value,
                                        categories: wantedCats });
-  if (!r.ok) { alert(r.error); return; }
+  if (!r.ok) { notice("Couldn’t start", r.error); return; }
   DATA.mode = "ai"; DATA.has_key = true; DATA.aisort = { running: true, done: 0, total: 0 };
   renderMode();
   $("#airun").disabled = true;
@@ -1252,7 +1559,7 @@ $("#airun").onclick = async () => {
 /* ---------------- export as PDF (always the selected fonts) ------------- */
 $("#printbtn").onclick = () => {
   if (!SEL.size) {
-    alert("Nothing selected yet. Click a specimen (or drag across several) to choose which fonts go on the sheet, then export.");
+    notice("Nothing selected", "Click a specimen (or drag across several) to choose which fonts go on the sheet, then export.");
     return;
   }
   $("#exselcount").textContent = SEL.size + " selected fonts, grouped by your visible categories";

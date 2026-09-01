@@ -11,6 +11,7 @@ Nothing is ever moved, copied, or modified.
 """
 import json
 import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -24,13 +25,33 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+VERSION = "1.1.0"
+VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
+               "main/VERSION")
+DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(APP_DIR, "data")
+
+
+def user_data_dir():
+    """A per-user home for the index, outside the app folder, so replacing
+    the app with a newer download never touches anyone's library."""
+    home = os.path.expanduser("~")
+    if sys.platform == "darwin":
+        return os.path.join(home, "Library", "Application Support",
+                            "Font Atlas")
+    if sys.platform.startswith("win"):
+        return os.path.join(os.environ.get("APPDATA", home), "Font Atlas")
+    return os.path.join(home, ".local", "share", "font-atlas")
+
+
+DATA_DIR = user_data_dir()
 INDEX_PATH = os.path.join(DATA_DIR, "index.json")
+LEGACY_INDEX = os.path.join(APP_DIR, "data", "index.json")
 PORT = 8765
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
-CLASSIFIER_VERSION = 7  # bump to force re-classification of unchanged files
+CLASSIFIER_VERSION = 8  # bump to force re-classification of unchanged files
 
 # Tag categories applied automatically by name at scan time.
 AUTO_TAGS = [("trial", "Trial Fonts", ["trial", "demo version", "unlicensed"])]
@@ -249,6 +270,10 @@ def _parse_face(data, off, is_woff):
 
     cov = _cmap_cover(data, tables)
     has_latin = (cov(0x41) and cov(0x61)) if cov else None
+    if has_latin is False and cov(0xF041) and cov(0xF061):
+        # symbol-encoded (Wingdings-style): browsers remap Latin onto the
+        # symbols, so it previews fine
+        has_latin = True
     sample = None
     if cov and has_latin is False:
         for cp, text in SCRIPT_SAMPLES:
@@ -395,6 +420,12 @@ SCAN = {"running": False, "dirs": 0, "found": 0, "current": "", "error": "",
 def load_index():
     global INDEX
     os.makedirs(DATA_DIR, exist_ok=True)
+    if not os.path.exists(INDEX_PATH) and os.path.exists(LEGACY_INDEX):
+        # older versions kept the index inside the app folder; adopt it
+        try:
+            shutil.copy2(LEGACY_INDEX, INDEX_PATH)
+        except OSError:
+            pass
     if os.path.exists(INDEX_PATH):
         try:
             with open(INDEX_PATH, "r", encoding="utf-8") as f:
@@ -431,6 +462,13 @@ def load_index():
                 {"id": cid, "name": name, "visible": False, "kind": "tag"})
     INDEX.setdefault("fonts", {})
     INDEX.setdefault("settings", {})
+    INDEX.setdefault("groups", [])
+    # one-time migration: tag checkboxes became filters, so they start off
+    if not INDEX["settings"].get("tags_are_filters"):
+        for c in INDEX["categories"]:
+            if c.get("kind") == "tag":
+                c["visible"] = False
+        INDEX["settings"]["tags_are_filters"] = True
     # a font's primary home is always a style category; demote stray tags
     tag_ids = {c["id"] for c in INDEX["categories"] if c.get("kind") == "tag"}
     for e in INDEX["fonts"].values():
@@ -504,7 +542,10 @@ def index_file(path, seen_ids):
                 "fullname": face["fullname"], "weight": face["weight"],
                 "has_latin": face.get("has_latin"),
                 "sample": face.get("sample"),
-                "also": sorted(set((old.get("also", []) if old else []))
+                # auto-managed tags are recomputed each scan; manual and
+                # AI tags are kept
+                "also": sorted((set(old.get("also", []) if old else [])
+                                - {"trial", "nonlatin", "nopreview"})
                                | set(auto)),
                 "builtin": cat,
                 "suggested": (old.get("suggested", cat) if old else cat),
@@ -572,6 +613,26 @@ def scan_worker(roots):
                           new_categories=0, cancel=False, stopped=False)
             threading.Thread(target=aisort_worker, args=(key, "uncertain"),
                              daemon=True).start()
+
+
+# ------------------------------------------------------------- update check
+
+UPDATE = {"available": False, "latest": "", "url": DOWNLOAD_URL}
+
+
+def check_for_update():
+    """Quietly compare our VERSION against the repo's; never blocks anything."""
+    try:
+        req = urllib.request.Request(VERSION_URL,
+                                     headers={"User-Agent": "font-atlas"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            latest = r.read().decode("utf-8").strip()
+        def parse(v):
+            return tuple(int(x) for x in v.split("."))
+        if parse(latest) > parse(VERSION):
+            UPDATE.update(available=True, latest=latest)
+    except Exception:
+        pass  # offline or repo unreachable: simply no update notice
 
 
 # ------------------------------------------------------- sorting with Claude
@@ -692,7 +753,9 @@ def aisort_worker(key, scope, wanted=()):
                         e["category"] = prim
                         e["suggested"] = prim
                         e["uncertain"] = False
-                    e["also"] = sorted(set(val) - {prim, e["category"]})
+                    # add Claude's tags on top of existing ones, never replace
+                    e["also"] = sorted((set(e.get("also", [])) | set(val))
+                                       - {prim, e["category"]})
                 save_index()
             AISORT["done"] = min(i + len(batch), len(todo))
     except urllib.error.HTTPError as exc:
@@ -782,7 +845,9 @@ class Handler(BaseHTTPRequestHandler):
                 fonts = deduped_fonts()
                 cats = INDEX["categories"]
                 settings = INDEX.get("settings", {})
-            self._json({"fonts": fonts, "categories": cats, "scan": SCAN,
+            self._json({"fonts": fonts, "categories": cats,
+                        "groups": INDEX.get("groups", []),
+                        "version": VERSION, "update": UPDATE, "scan": SCAN,
                         "aisort": AISORT,
                         "mode": settings.get("mode", "builtin"),
                         "has_key": bool(settings.get("api_key")),
@@ -936,6 +1001,36 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=aisort_worker, args=(key, scope, wanted),
                              daemon=True).start()
             self._json({"ok": True})
+        elif path == "/api/groups":
+            op = body.get("op")
+            with LOCK:
+                groups = INDEX.setdefault("groups", [])
+                if op == "add":
+                    name = str(body.get("name", "")).strip() or "group"
+                    ids = [i for i in (body.get("ids") or [])
+                           if isinstance(i, str)][:10000]
+                    gid = "g%d" % int(time.time() * 1000)
+                    groups.append({"id": gid, "name": name, "ids": ids})
+                elif op == "del":
+                    INDEX["groups"] = [g for g in groups
+                                       if g["id"] != body.get("id")]
+                elif op == "ren":
+                    for g in groups:
+                        if g["id"] == body.get("id"):
+                            new = str(body.get("name", "")).strip()
+                            g["name"] = new or g["name"]
+                elif op in ("addto", "rmfrom"):
+                    ids = {i for i in (body.get("ids") or [])
+                           if isinstance(i, str)}
+                    for g in groups:
+                        if g["id"] == body.get("id"):
+                            if op == "addto":
+                                g["ids"] = sorted(set(g["ids"]) | ids)
+                            else:
+                                g["ids"] = [i for i in g["ids"]
+                                            if i not in ids]
+                save_index()
+            self._json({"ok": True})
         elif path == "/api/nopreview":
             # the browser reports fonts its font engine refuses to draw
             with LOCK:
@@ -956,6 +1051,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_index()
+    threading.Thread(target=check_for_update, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"Font Atlas running at {url}  (Ctrl+C to quit)")

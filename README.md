@@ -4,8 +4,11 @@ Index every font on a computer without moving a single file, then test
 headlines and export type specimen sheets organized by style category.
 
 Fonts are only ever **read** in place: nothing is moved, copied, installed,
-renamed, or deleted. The index is just a list of paths and names saved in
-`data/index.json` inside this folder.
+renamed, or deleted. The index (categories, tags, groups, settings) is saved
+per user outside the app folder (on a Mac: `~/Library/Application Support/
+Font Atlas/`), so downloading a newer Font Atlas never loses your sorting.
+The app checks GitHub for a newer version on launch and shows a small
+"new version" link when there is one.
 
 ## Run it
 
