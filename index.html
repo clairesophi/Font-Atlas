@@ -1163,12 +1163,17 @@ function sampleText(f) {
 const GROUP_THRESHOLD = 4; // families with more styles than this get a picker
 
 /* Some fonts bake the weight into the family name (OpenSans-300-normal-0,
-   Raleway-ExtraBold). Strip trailing style words so they group as one. */
-const STYLE_WORDS = /[\s\-_]+(thin|hairline|ultra ?light|extra ?light|light|regular|normal|book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|black|fat|poster|italic|oblique|slanted|condensed|compressed|narrow|wide|extended|expanded|outline|inline|shadow|solid|display|caption|deck|micro|subhead|headline|\d+)$/i;
+   Raleway-ExtraBold), and some foundries publish every weight as its own
+   "family" with the weight mid-name (Whyte Bold Trial). Drop style words
+   wherever they sit, so all of these group as one row with the picker. */
+const STYLE_WORD = "thin|hairline|ultra ?light|extra ?light|light|regular|normal|book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|black|fat|poster|italic|oblique|slanted|condensed|compressed|narrow|wide|extended|expanded|outline|inline|shadow|solid|display|caption|deck|micro|subhead|headline";
+const STYLE_ANYWHERE = new RegExp("[\\s\\-_]+(" + STYLE_WORD + ")(?=[\\s\\-_]|$)", "gi");
+const STYLE_TRAILING = new RegExp("[\\s\\-_]+(" + STYLE_WORD + "|\\d+)$", "i");
 function familyKey(name) {
-  let s = name.trim();
+  let s = name.trim().replace(STYLE_ANYWHERE, "").trim();
+  if (s.length < 3) s = name.trim();   // the name IS a style word: keep it
   for (;;) {
-    const t = s.replace(STYLE_WORDS, "").trim();
+    const t = s.replace(STYLE_TRAILING, "").trim();
     if (t === s || t.length < 3) break;
     s = t;
   }
