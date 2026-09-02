@@ -142,6 +142,9 @@
   #catlist li.dragging { opacity: .35; }
   #catlist li:hover { background: var(--hover); }
   .grip { color: var(--faint); font-size: 11px; cursor: grab; }
+  .sechev { color: var(--faint); font-size: 10px; width: 12px; cursor: pointer; }
+  .sechev:hover, .seclabel:hover { color: var(--accent); }
+  .seclabel { cursor: pointer; }
   .catname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
     white-space: nowrap; font-size: 12.5px; }
   .catname input { width: 100%; font: inherit; padding: 1px 3px;
@@ -1218,7 +1221,7 @@ function renderSidebar() {
   const SYSTEM_TAGS = ["nonlatin", "nopreview"];
   makeHead(ul, "categories",
     () => setAllVisible("style", true),
-    () => setAllVisible("style", false));
+    () => setAllVisible("style", false), "style");
   for (const c of DATA.categories.filter(x => x.kind !== "tag"))
     renderCatRow(ul, c);
   // the app's own hide-toggles live with the categories, always opt-in
@@ -1229,7 +1232,7 @@ function renderSidebar() {
       { id: "c" + Date.now().toString(36), name, visible: true, kind: "style" });
     pushCats();
   });
-  makeHead(ul, "tags", null, null);   // no all/none: checked tags filter
+  makeHead(ul, "tags", null, null, "tag");   // no all/none: checked tags filter
   for (const c of DATA.categories.filter(x =>
       x.kind === "tag" && !SYSTEM_TAGS.includes(x.id)))
     renderCatRow(ul, c);
@@ -1239,18 +1242,38 @@ function renderSidebar() {
     pushCats();
   });
   renderGroupRows(ul);
+  // rows belong to the section header above them; folded sections hide theirs
+  let cur = "";
+  for (const li of ul.children) {
+    if (li.classList.contains("catgrouphead")) { cur = li.dataset.sec; continue; }
+    li.dataset.sec = cur;
+    li.style.display = SIDE_COLLAPSED.has(cur) ? "none" : "";
+  }
 }
 
-function makeHead(ul, label, onAll, onNone) {
+/* sidebar sections fold: click the caret or the label; remembered per browser */
+let SIDE_COLLAPSED = new Set();
+try { SIDE_COLLAPSED = new Set(JSON.parse(localStorage.getItem("fa_side_collapsed") || "[]")); } catch (e) {}
+function makeHead(ul, label, onAll, onNone, sec) {
   const li = document.createElement("li");
   li.className = "catgrouphead";
-  if (onAll) {
-    li.innerHTML = `<span style="flex:1">${label}</span>
-      <a class="allnone">all</a><a class="allnone">none</a>`;
+  li.dataset.sec = sec;
+  const open = !SIDE_COLLAPSED.has(sec);
+  li.innerHTML = `<span class="sechev" title="${open ? "collapse" : "expand"} ${label}">${open ? "▾" : "▸"}</span>`
+    + `<span class="seclabel" style="flex:1">${label}</span>`
+    + (onAll && open ? `<a class="allnone">all</a><a class="allnone">none</a>` : "");
+  if (onAll && open) {
     const [a, n] = li.querySelectorAll(".allnone");
     a.onclick = onAll;
     n.onclick = onNone;
-  } else li.textContent = label;
+  }
+  const toggle = () => {
+    if (open) SIDE_COLLAPSED.add(sec); else SIDE_COLLAPSED.delete(sec);
+    try { localStorage.setItem("fa_side_collapsed", JSON.stringify([...SIDE_COLLAPSED])); } catch (e) {}
+    renderSidebar();
+  };
+  li.querySelector(".sechev").onclick = toggle;
+  li.querySelector(".seclabel").onclick = toggle;
   ul.appendChild(li);
 }
 
@@ -1326,7 +1349,7 @@ function addInputRow(ul, placeholder, onCommit) {
 }
 
 function renderGroupRows(ul) {
-  makeHead(ul, "groups", () => groupsAll(true), () => groupsAll(false));
+  makeHead(ul, "groups", () => groupsAll(true), () => groupsAll(false), "group");
   const gs = DATA.groups || [];
   const have = new Set(DATA.fonts.map(f => f.id));
   for (const g of gs) {

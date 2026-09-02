@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.19"
+VERSION = "1.1.20"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
