@@ -160,6 +160,9 @@
     border-radius: 0; background: var(--paper); color: #555; }
   .hint { color: var(--faint); font-size: 10.5px; margin-top: 16px;
     line-height: 1.6; font-family: var(--serif); font-style: italic; }
+  #verline { padding: 4px 3px 14px; }
+  #verline a { color: var(--dim); text-decoration: underline; cursor: pointer; }
+  #verline a:hover { color: var(--accent); }
 
   /* specimen list */
   .cat-section { margin-top: 36px; }
@@ -339,6 +342,8 @@
       </div>
     </div>
     <ul id="catlist"></ul>
+    <div class="hint" id="verline">v<span id="appver"></span> ·
+      <a id="checkupd">check for updates</a></div>
   </nav>
 
   <div id="main">
@@ -916,6 +921,7 @@ function render() {
   renderSections();
   renderMode();
   renderSelInfo();
+  $("#appver").textContent = DATA.version || "";
   const up = $("#updatenote");
   up.style.display = (DATA.update && DATA.update.available) ? "" : "none";
   const n = DATA.fonts.filter(f => f.uncertain).length;
@@ -1895,6 +1901,26 @@ $("#airun").onclick = async () => {
 };
 
 /* ---------------- one-click self-update ---------------- */
+$("#checkupd").onclick = async () => {
+  const a = $("#checkupd");
+  a.textContent = "checking…";
+  let r;
+  try { r = await api("/api/check_update", {}); }
+  catch (err) { r = null; }
+  a.textContent = "check for updates";
+  if (!r) {
+    notice("Couldn't check", "The update server didn't answer; are you online?");
+    return;
+  }
+  DATA.update = r.update;
+  render();
+  if (r.update && r.update.available) {
+    $("#updatenote").click();   // straight into the usual update dialog
+  } else {
+    notice("Up to date", `You have the newest version (v${r.version}).`);
+  }
+};
+
 $("#updatenote").onclick = async e => {
   e.preventDefault();
   const u = DATA.update || {};

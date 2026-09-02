@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.8"
+VERSION = "1.1.9"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -1036,7 +1036,10 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             self._json({"error": "bad json"}, 400)
             return
-        if path == "/api/scan":
+        if path == "/api/check_update":
+            check_for_update()
+            self._json({"ok": True, "update": UPDATE, "version": VERSION})
+        elif path == "/api/scan":
             if SCAN["running"]:
                 self._json({"ok": False, "error": "scan already running"})
                 return
