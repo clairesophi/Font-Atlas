@@ -390,7 +390,14 @@
             </svg></button>
         </span>
         <span class="seg mini">
-          <button id="famtoggle" data-tip="expand every family to one line per weight"></button>
+          <button id="famcollapse" class="on" data-tip="every family as one line">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5.5 2.5 10.5 6.5 5.5 10.5"/>
+            </svg></button>
+          <button id="famexpand" data-tip="every family expanded, one line per weight">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3.5 4.5 7.5 9.5 11.5 4.5"/>
+            </svg></button>
         </span>
       </span>
       <div id="wordmark" title="each letter is set in a random font from your library; click for a new hand" onclick="buildWordmark(true)"><span id="wordmark-in"></span></div>
@@ -743,8 +750,14 @@ async function api(path, body) {
 
 async function refresh() {
   DATA = await api("/api/data");
+  FONT_V = new Map(DATA.fonts.map(f => [f.id, f.mtime || 0]));
   render();
 }
+
+/* versioned font URL: the file's mtime busts the cache only when the font
+   actually changes, so each font downloads ONCE per browser, ever */
+let FONT_V = new Map();
+function fontURL(id) { return `/font/${id}?v=${FONT_V.get(id) || 0}`; }
 
 /* ---------------- font lazy loading ---------------- */
 const io = new IntersectionObserver(entries => {
@@ -764,7 +777,7 @@ async function ensureFont(id, el) {
   } else {
     loadedFonts.set(id, "loading");
     try {
-      const ff = new FontFace("ff_" + id, `url("/font/${id}")`);
+      const ff = new FontFace("ff_" + id, `url("${fontURL(id)}")`);
       await ff.load();
       document.fonts.add(ff);
       loadedFonts.set(id, "ok");
@@ -823,7 +836,7 @@ async function loadFontById(id) {
   }
   loadedFonts.set(id, "loading");
   try {
-    const ff = new FontFace("ff_" + id, `url("/font/${id}")`);
+    const ff = new FontFace("ff_" + id, `url("${fontURL(id)}")`);
     await ff.load();
     document.fonts.add(ff);
     loadedFonts.set(id, "ok");
@@ -1321,23 +1334,18 @@ function groupableKeys() {
     if (list.length > 1) out.push(k);
   return out;
 }
-const CARET_RIGHT = `<svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5 10.5 6.5 5.5 10.5"/></svg>`;
-const CARET_DOWN = `<svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 4.5 7.5 9.5 11.5 4.5"/></svg>`;
 function renderFamToggle() {
-  const b = $("#famtoggle");
   const on = EXPANDED.size > 0;
-  b.classList.toggle("on", on);
-  b.dataset.tip = on ? "collapse every family back to one line"
-                     : "expand every family to one line per weight";
-  b.innerHTML = on ? CARET_DOWN : CARET_RIGHT;
+  $("#famcollapse").classList.toggle("on", !on);
+  $("#famexpand").classList.toggle("on", on);
 }
-$("#famtoggle").onclick = () => {
-  if (EXPANDED.size) {
-    for (const k of groupableKeys()) USER_FAM.add(k);   // block auto re-expand
-    EXPANDED.clear();
-  } else {
-    for (const k of groupableKeys()) { EXPANDED.add(k); USER_FAM.add(k); }
-  }
+$("#famcollapse").onclick = () => {
+  for (const k of groupableKeys()) USER_FAM.add(k);   // block auto re-expand
+  EXPANDED.clear();
+  renderSections();
+};
+$("#famexpand").onclick = () => {
+  for (const k of groupableKeys()) { EXPANDED.add(k); USER_FAM.add(k); }
   renderSections();
 };
 

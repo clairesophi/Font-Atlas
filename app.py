@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.7"
+VERSION = "1.1.8"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -1020,7 +1020,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", MIME.get(entry["ext"],
                                                       "application/octet-stream"))
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "max-age=3600")
+            # the client versions font URLs with ?v=<mtime>, so these can
+            # cache forever: each font downloads once per browser, ever
+            self.send_header("Cache-Control",
+                             "public, max-age=31536000, immutable")
             self.end_headers()
             self.wfile.write(body)
         else:
