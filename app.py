@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.16"
+VERSION = "1.1.17"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -773,16 +773,38 @@ def scan_worker(roots):
 UPDATE = {"available": False, "latest": "", "url": DOWNLOAD_URL}
 
 
+VERSION_API = ("https://api.github.com/repos/clairesophi/Font-Atlas/"
+               "contents/VERSION")
+
+
+def parse_version(v):
+    return tuple(int(x) for x in v.strip().split("."))
+
+
+def fetch_latest_version(timeout=5):
+    """The published VERSION. The GitHub API answers with the current
+    commit immediately; raw.githubusercontent lags minutes behind a push
+    (a CDN cache no query string busts), so it is only the fallback."""
+    import base64
+    try:
+        req = urllib.request.Request(VERSION_API, headers={
+            "User-Agent": "font-atlas", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            j = json.loads(r.read().decode("utf-8"))
+        return base64.b64decode(j["content"]).decode("utf-8").strip()
+    except Exception:
+        pass
+    req = urllib.request.Request(VERSION_URL,
+                                 headers={"User-Agent": "font-atlas"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode("utf-8").strip()
+
+
 def check_for_update():
     """Quietly compare our VERSION against the repo's; never blocks anything."""
     try:
-        req = urllib.request.Request(VERSION_URL,
-                                     headers={"User-Agent": "font-atlas"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            latest = r.read().decode("utf-8").strip()
-        def parse(v):
-            return tuple(int(x) for x in v.split("."))
-        if parse(latest) > parse(VERSION):
+        latest = fetch_latest_version(10)
+        if parse_version(latest) > parse_version(VERSION):
             UPDATE.update(available=True, latest=latest)
     except Exception:
         pass  # offline or repo unreachable: simply no update notice
@@ -843,14 +865,8 @@ def try_auto_update():
     into it before serving anything. Quick and quiet when offline; the
     in-app chip flow still exists for updates found while running."""
     try:
-        req = urllib.request.Request(VERSION_URL,
-                                     headers={"User-Agent": "font-atlas"})
-        with urllib.request.urlopen(req, timeout=3) as r:
-            latest = r.read().decode("utf-8").strip()
-
-        def parse(v):
-            return tuple(int(x) for x in v.split("."))
-        if parse(latest) <= parse(VERSION):
+        latest = fetch_latest_version(3)
+        if parse_version(latest) <= parse_version(VERSION):
             return
         print("Font Atlas v%s is out (you have v%s): updating…"
               % (latest, VERSION))
