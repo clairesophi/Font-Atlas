@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.17"
+VERSION = "1.1.18"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -893,7 +893,14 @@ def update_check_loop():
 
 AISORT = {"running": False, "done": 0, "total": 0, "error": "",
           "new_categories": 0, "cancel": False, "stopped": False}
+AISORT.update(in_tok=0, out_tok=0, cost=0.0)
 API_URL = "https://api.anthropic.com/v1/messages"
+
+
+# claude-opus-5 list price, $ per million tokens (input, output); thinking
+# counts as output. Used only for the running total shown in the header.
+PRICE_IN, PRICE_OUT = 5.0, 25.0
+LAST_USAGE = {}
 
 
 def claude_call(key, prompt, workspace=""):
@@ -914,6 +921,8 @@ def claude_call(key, prompt, workspace=""):
         headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=600) as r:
         resp = json.loads(r.read().decode("utf-8"))
+    LAST_USAGE.clear()
+    LAST_USAGE.update(resp.get("usage") or {})
     if resp.get("stop_reason") == "refusal":
         raise RuntimeError("the model declined this request")
     text = "".join(b.get("text", "") for b in resp.get("content", [])
@@ -970,6 +979,7 @@ def aisort_worker(key, scope, wanted=()):
                 todo = [f for f in INDEX["fonts"].values()
                         if f["uncertain"] or f["category"] == "unsorted"]
         AISORT["total"] = len(todo)
+        AISORT.update(in_tok=0, out_tok=0, cost=0.0)
         for i in range(0, len(todo), 80):
             if AISORT.get("cancel"):
                 AISORT["stopped"] = True
@@ -977,6 +987,11 @@ def aisort_worker(key, scope, wanted=()):
             batch = todo[i:i + 80]
             result = claude_call(key, aisort_prompt(cats, batch, wanted),
                                  workspace)
+            u = dict(LAST_USAGE)
+            AISORT["in_tok"] += int(u.get("input_tokens") or 0)
+            AISORT["out_tok"] += int(u.get("output_tokens") or 0)
+            AISORT["cost"] = round(AISORT["in_tok"] * PRICE_IN / 1e6
+                                   + AISORT["out_tok"] * PRICE_OUT / 1e6, 2)
             new_cats = result.get("new_categories") or []
             assignments = result.get("assignments") or {}
             with LOCK:

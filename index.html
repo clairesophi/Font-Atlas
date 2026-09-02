@@ -559,9 +559,11 @@
       <a href="https://console.anthropic.com/settings/workspaces"
          target="_blank" rel="noopener">console.anthropic.com/settings/workspaces</a>
       into the field above and run it again.
-      The key is saved in plain text in this app's local <b>data</b> folder on
-      this computer and is only ever sent to api.anthropic.com. Sorting ~1000
-      fonts costs roughly a dollar. Hand-sorted fonts are never overwritten.</p>
+      The key is saved in plain text with your library (Application Support
+      on a Mac) and is only ever sent to api.anthropic.com. Sorting 1,000
+      fonts costs about one to two dollars at current Claude pricing; the
+      running total shows in the header. Hand-sorted fonts are never
+      overwritten.</p>
     <div class="actions">
       <button id="aiforget">forget key</button>
       <button id="aiclose" onclick="closeAI()">close</button>
@@ -2089,13 +2091,19 @@ function renderMode() {
   if (a.running) {
     st.style.display = "inline-flex";
     $("#aistatustext").textContent =
-      `Claude is sorting… ${a.done}/${a.total} (${aiPct(a)}%)`;
+      `Claude is sorting… ${a.done}/${a.total} (${aiPct(a)}%)`
+      + (a.cost ? ` · $${a.cost.toFixed(2)} so far` : "");
     $("#aistatusfill").parentElement.style.display = "";
     $("#aistatusfill").style.width = aiPct(a) + "%";
     scheduleAIPoll();
   } else if (a.error) {
     st.style.display = "inline-flex";
     $("#aistatustext").textContent = "AI sort stopped: " + a.error;
+    $("#aistatusfill").parentElement.style.display = "none";
+  } else if (a.done && a.cost) {
+    st.style.display = "inline-flex";   // finished (or stopped): the bill
+    $("#aistatustext").textContent =
+      `Claude sorted ${a.done} fonts · $${a.cost.toFixed(2)}`;
     $("#aistatusfill").parentElement.style.display = "none";
   } else st.style.display = "none";
 }
