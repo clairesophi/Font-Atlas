@@ -998,7 +998,7 @@ async function setGroupOn(g) {
   saveGrpOn();
   if (flipOnFor(groupNeeds(g)))
     await api("/api/categories", { categories: DATA.categories });
-  refresh();
+  render();   // visibility only changed locally; no refetch needed
 }
 
 async function groupsAll(on) {
@@ -1010,7 +1010,7 @@ async function groupsAll(on) {
       changed = flipOnFor(groupNeeds(g)) || changed;
     if (changed) await api("/api/categories", { categories: DATA.categories });
   }
-  refresh();
+  render();   // visibility only changed locally; no refetch needed
 }
 
 function addInputRow(ul, placeholder, onCommit) {
@@ -1136,7 +1136,7 @@ function renderCatRow(ul, c) {
                          : "Its fonts move to Unsorted; files untouched.",
         "delete")) return;
       DATA.categories = DATA.categories.filter(x => x.id !== c.id);
-      pushCats();
+      pushCats(true);   // the server reassigns fonts: refetch them
     };
     li.ondragstart = e => { li.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; };
     li.ondragend = () => { li.classList.remove("dragging"); pushCats(); };
@@ -1162,11 +1162,15 @@ function renameCat(li, c) {
   inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); if (e.key === "Escape") render(); };
 }
 
-function pushCats() {
+function pushCats(refreshAfter) {
   const order = [...$("#catlist").children]
     .filter(li => li.dataset.id).map(li => li.dataset.id);
   DATA.categories.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  api("/api/categories", { categories: DATA.categories }).then(refresh);
+  // paint the local state now; a huge library refetch on every checkbox
+  // both crawled and raced rapid toggles (a stale response undid clicks)
+  render();
+  api("/api/categories", { categories: DATA.categories })
+    .then(() => { if (refreshAfter) refresh(); });
 }
 
 function sampleText(f) {
@@ -1251,6 +1255,18 @@ function inkOverlap(a, b) {
   for (let i = 0; i < a.length; i++) { inter += a[i] & b[i]; union += a[i] | b[i]; }
   return union ? inter / union : 1;
 }
+/* with a huge library, measuring every family up front loads fonts for
+   rows nobody is looking at: measure a row only when it scrolls near */
+const VAR_PENDING = new Map();
+const varIO = new IntersectionObserver(entries => {
+  for (const en of entries) {
+    if (!en.isIntersecting) continue;
+    varIO.unobserve(en.target);
+    const k = en.target.dataset.vk;
+    const list = VAR_PENDING.get(k);
+    if (list) { VAR_PENDING.delete(k); queueMeasure(k, list); }
+  }
+}, { rootMargin: "400px" });
 let varQueue = Promise.resolve();
 function queueMeasure(k, list) {
   if (FAMVAR.has(k)) return;
@@ -1346,15 +1362,11 @@ function buildRow(f, c, group) {
       <select class="stylesel" title="this family has ${group.length} weights; pick one to preview">
         ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(multiFam ? x.fullname : (x.subfamily || x.fullname))}</option>`).join("")}
       </select><button class="stylecount" title="show every weight as its own row">${group.length} weights ▾</button></span>` : "";
-  const copies = f.copies
-    ? `<span class="flag" style="color:#999" title="this face exists in ${f.copies.length} places:&#10;${esc(f.copies.join("\n"))}">×${f.copies.length}</span>`
-    : "";
   row.innerHTML = `
     <div class="line" data-id="${f.id}" data-ext="${esc(f.ext)}" data-name="${esc(f.fullname)}" title="click or drag to select">${esc(sampleText(f))}</div>
     <div class="caption">
       <span class="fname" title="${esc(f.path)}&#10;click to show this file in Finder">${esc(group ? groupBaseName(group) : f.fullname)}</span>
       ${styleSel}
-      ${copies}
       ${f.has_latin === false ? '<span class="flag" style="color:#a80" title="this font has no Latin letters; the preview shows a sample of its own script">non-Latin</span>' : ""}
       ${f.locked ? '<span title="sorted by hand">✓</span>' : ""}
       <span class="fpath">${esc(f.path)}</span>
@@ -1375,41 +1387,50 @@ function buildRow(f, c, group) {
       <option value="" selected disabled>group</option>${grpOpts}
       <option value="__newgrp">＋ new group…</option>
     </select></span>`;
+  // a row inside a multi-selection speaks for the whole selection (the
+  // same convention as dragging): category, tag, and group changes apply
+  // to every selected font
+  const actIds = () =>
+    (SEL.has(f.id) && SEL.size > 1) ? [...new Set([...SEL, ...ids])] : ids;
   row.querySelector(".catsel").onchange = e => {
     const v = e.target.value;
     if (!v) return;
+    const t = actIds();
     let req;
-    if (v === "__reset") req = { ids, reset: true };
-    else if (v === "__rm") req = { ids, remove_from: c.id };
-    else req = { ids, category: v };
+    if (v === "__reset") req = { ids: t, reset: true };
+    else if (v === "__rm") req = { ids: t, remove_from: c.id };
+    else req = { ids: t, category: v };
     api("/api/assign", req).then(refresh);
   };
   const ts = row.querySelector(".tagsel");
   if (ts) ts.onchange = () => {
     const tid = ts.value;
     if (!tid) return;
-    if (tid === "__newtag") { createTagAndApply(ids); return; }
+    if (tid === "__newtag") { createTagAndApply(actIds()); return; }
     const req = (f.also || []).includes(tid)
-      ? { ids, remove_from: tid }
-      : { ids, add_to: tid };
+      ? { ids: actIds(), remove_from: tid }
+      : { ids: actIds(), add_to: tid };
     api("/api/assign", req).then(refresh);
   };
   const gs = row.querySelector(".grpsel");
   if (gs) gs.onchange = async () => {
     const gid = gs.value;
     if (!gid) return;
+    const t = actIds();
+    const multi = t.length > ids.length;
     if (gid === "__newgrp") {
       const name = await askName("New group",
-        group ? "This whole family goes in." : "This font goes in.",
+        multi ? `The ${t.length} selected fonts go in.`
+              : group ? "This whole family goes in." : "This font goes in.",
         "", "create group");
       if (!name) return;
-      await api("/api/groups", { op: "add", name, ids });
+      await api("/api/groups", { op: "add", name, ids: t });
       refresh();
       return;
     }
     const g = (DATA.groups || []).find(x => x.id === gid);
     const member = g && g.ids.includes(f.id);
-    await api("/api/groups", { op: member ? "rmfrom" : "addto", id: gid, ids });
+    await api("/api/groups", { op: member ? "rmfrom" : "addto", id: gid, ids: t });
     refresh();
   };
   const fn = row.querySelector(".fname");
@@ -1475,8 +1496,17 @@ function renderSections() {
           sec.appendChild(fh);
           for (const f of list) sec.appendChild(buildRow(f, c, null));
         } else {
-          queueMeasure(k, list);   // looks-very-different families auto-expand
-          sec.appendChild(buildRow(pickDefaultFace(list), c, list));
+          const row = buildRow(pickDefaultFace(list), c, list);
+          const cached = vsimCache[k];
+          if (!FAMVAR.has(k) && cached && cached[0] === list.length) {
+            FAMVAR.set(k, cached[1]);   // known from a previous session, free
+            maybeAutoExpand(k);
+          } else if (!FAMVAR.has(k)) {  // measured when scrolled near
+            VAR_PENDING.set(k, list);
+            row.dataset.vk = k;
+            varIO.observe(row);
+          }
+          sec.appendChild(row);
         }
       } else {
         for (const f of list) sec.appendChild(buildRow(f, c, null));

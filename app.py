@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.6"
+VERSION = "1.1.7"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -757,6 +757,41 @@ def restart_self():
               "--no-browser"])
 
 
+def try_auto_update():
+    """At launch: if the repo has a newer version, install it and restart
+    into it before serving anything. Quick and quiet when offline; the
+    in-app chip flow still exists for updates found while running."""
+    try:
+        req = urllib.request.Request(VERSION_URL,
+                                     headers={"User-Agent": "font-atlas"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            latest = r.read().decode("utf-8").strip()
+
+        def parse(v):
+            return tuple(int(x) for x in v.split("."))
+        if parse(latest) <= parse(VERSION):
+            return
+        print("Font Atlas v%s is out (you have v%s): updating…"
+              % (latest, VERSION))
+        self_update()
+        print("updated to v%s, restarting" % latest)
+        os.execv(sys.executable,
+                 [sys.executable, os.path.join(APP_DIR, "app.py")]
+                 + sys.argv[1:])
+    except Exception as exc:
+        # offline, rate-limited, or a stale cache: the periodic check and
+        # the in-app chip still cover it
+        print("auto-update skipped (%s)" % exc)
+
+
+def update_check_loop():
+    """Long-running instances re-check every few hours so the 'new
+    version' chip appears without a relaunch."""
+    while True:
+        check_for_update()
+        time.sleep(4 * 3600)
+
+
 # ------------------------------------------------------- sorting with Claude
 
 AISORT = {"running": False, "done": 0, "total": 0, "error": "",
@@ -1173,7 +1208,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     load_index()
-    threading.Thread(target=check_for_update, daemon=True).start()
+    if "--no-selfupdate" not in sys.argv:
+        try_auto_update()
+    threading.Thread(target=update_check_loop, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"Font Atlas running at {url}  (Ctrl+C to quit)")
