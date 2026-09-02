@@ -207,8 +207,20 @@
   .caption .stylesel { width: auto; max-width: 130px; border: 1px solid #ddd;
     padding: 1px 3px; color: #555; }
   .caption .stylecount { font-size: 9.5px; color: var(--faint);
-    letter-spacing: .05em; }
+    letter-spacing: .05em; border: none; background: none; padding: 0; }
+  .caption .stylecount:hover { color: var(--accent); background: none; }
   @media print { .caption .stylectl { display: none; } }
+  .famhead { display: flex; align-items: baseline; gap: 10px;
+    margin-top: 20px; padding: 6px 2px 4px;
+    border-bottom: 1px solid var(--ink);
+    font-size: 10px; font-weight: 700; letter-spacing: .15em;
+    text-transform: uppercase; }
+  .famhead .famcount { color: var(--dim); font-weight: 400; }
+  .famhead button { border: none; background: none; color: var(--faint);
+    font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+    padding: 0; margin-left: auto; }
+  .famhead button:hover { color: var(--accent); background: none; }
+  @media print { .famhead button { display: none; } }
   #empty { margin: 90px auto; max-width: 420px; text-align: center;
     color: #666; font-family: var(--serif); font-size: 14.5px; line-height: 1.6; }
 
@@ -376,6 +388,9 @@
               <path d="M1.5 2.5h8.5M1.5 6.5h8.5M1.5 10.5h8.5"/>
               <path d="M11.5 0.8v11.4" stroke-width="1.1"/>
             </svg></button>
+        </span>
+        <span class="seg mini">
+          <button id="famtoggle" data-tip="expand every family to one line per weight"></button>
         </span>
       </span>
       <div id="wordmark" title="each letter is set in a random font from your library; click for a new hand" onclick="buildWordmark(true)"><span id="wordmark-in"></span></div>
@@ -1161,27 +1176,41 @@ function sampleText(f) {
 }
 
 const GROUP_THRESHOLD = 4; // families with more styles than this get a picker
+const EXPANDED = new Set(); // familyKeys currently shown as one row per style
 
 /* Some fonts bake the weight into the family name (OpenSans-300-normal-0,
    Raleway-ExtraBold), and some foundries publish every weight as its own
    "family" with the weight mid-name (Whyte Bold Trial). Drop style words
    wherever they sit, so all of these group as one row with the picker. */
-const STYLE_WORD = "thin|hairline|ultra ?light|extra ?light|light|regular|normal|book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|black|fat|poster|italic|oblique|slanted|condensed|compressed|narrow|wide|extended|expanded|outline|inline|shadow|solid|display|caption|deck|micro|subhead|headline";
-const STYLE_ANYWHERE = new RegExp("[\\s\\-_]+(" + STYLE_WORD + ")(?=[\\s\\-_]|$)", "gi");
-const STYLE_TRAILING = new RegExp("[\\s\\-_]+(" + STYLE_WORD + "|\\d+)$", "i");
+const STYLE_WORD = "thin|hairline|ultra ?light|extra ?light|light|regular|normal|book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|black|fat|poster|italics|italic|oblique|slanted|upright|roman|condensed|compressed|narrow|wide|extended|expanded|outline|inline|shadow|solid|rounded|display|caption|deck|micro|subhead|headline|small ?caps|smallcaps|alternates|alternate|alt|variable|var|vf|pro|std|semi|demi|ultra|extra|\\d+ ?pt";
+// style words chain without separators too: BoldItalic, CondensedBold, SemiExpanded
+const STYLE_CHAIN = "(?:" + STYLE_WORD + ")(?:[\\s\\-_]*(?:" + STYLE_WORD + "))*";
+const STYLE_ANYWHERE = new RegExp("[\\s\\-_]+" + STYLE_CHAIN + "(?=[\\s\\-_]|$)", "gi");
+const STYLE_TRAILING = new RegExp("[\\s\\-_]+(" + STYLE_CHAIN + "|\\d+)$", "i");
+// webfont builds append cache tokens (KaTeX_Main-Regular-B22Nviop)
+const HASH_TAIL = /[\s\-_]+(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6,}$/;
 function familyKey(name) {
-  let s = name.trim().replace(STYLE_ANYWHERE, "").trim();
-  if (s.length < 3) s = name.trim();   // the name IS a style word: keep it
-  for (;;) {
-    const t = s.replace(STYLE_TRAILING, "").trim();
+  let s = name.trim();
+  for (;;) {   // peel trailing junk: separators, style words, indices, hashes
+    const t = s.replace(/[\s\-_]+$/, "").replace(STYLE_TRAILING, "")
+               .replace(HASH_TAIL, "").trim();
     if (t === s || t.length < 3) break;
     s = t;
   }
+  const t = s.replace(STYLE_ANYWHERE, "").trim();
+  if (t.length >= 3) s = t;   // guard: a name that IS a style word stays
   return s.toLowerCase().replace(/[\s\-_]+/g, "");
 }
 function groupBaseName(list) {
-  return list.reduce((a, b) => (b.family.length < a.length ? b.family : a),
-                     list[0].family);
+  // shortest family name, shown without its baked-in style words
+  const clean = n => {
+    const s = n.replace(STYLE_ANYWHERE, "").replace(/[\s\-_]+$/, "").trim();
+    return s.length >= 3 ? s : n;
+  };
+  return list.reduce((a, b) => {
+    const c = clean(b.family);
+    return c.length < a.length ? c : a;
+  }, clean(list[0].family));
 }
 
 function pickDefaultFace(list) {
@@ -1191,6 +1220,110 @@ function pickDefaultFace(list) {
   return [...list].sort((a, b) =>
     Math.abs(a.weight - 400) - Math.abs(b.weight - 400))[0];
 }
+
+/* ---- family variance: families whose styles LOOK very different start
+   expanded (one line per style); near-identical ones stay one line.
+   Measured as average pixel overlap of the same letters across styles. ---- */
+const FAMVAR = new Map();     // familyKey -> avg overlap 0..1
+const USER_FAM = new Set();   // manually toggled: never auto-override
+const VARY_THRESHOLD = 0.40;   // below: styles look like different designs
+let vsimCache = {};
+try { vsimCache = JSON.parse(localStorage.getItem("fa_vsim") || "{}"); } catch (e) {}
+
+async function faceInk(id) {
+  if (!await loadFontById(id)) return null;
+  const c = document.createElement("canvas");
+  c.width = 220; c.height = 80;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.font = `56px "ff_${id}"`;
+  g.fillText("Rag", 8, 62);
+  const d = g.getImageData(0, 0, 220, 80).data;
+  const bits = new Uint8Array(220 * 80);
+  let any = 0;
+  for (let i = 0; i < bits.length; i++) {
+    bits[i] = d[i * 4 + 3] > 60 ? 1 : 0;
+    any += bits[i];
+  }
+  return any ? bits : null;   // empty render = font didn't really load
+}
+function inkOverlap(a, b) {
+  let inter = 0, union = 0;
+  for (let i = 0; i < a.length; i++) { inter += a[i] & b[i]; union += a[i] | b[i]; }
+  return union ? inter / union : 1;
+}
+let varQueue = Promise.resolve();
+function queueMeasure(k, list) {
+  if (FAMVAR.has(k)) return;
+  const cached = vsimCache[k];
+  if (cached && cached[0] === list.length) {
+    FAMVAR.set(k, cached[1]);
+    maybeAutoExpand(k);
+    return;
+  }
+  FAMVAR.set(k, NaN);   // claimed; one measurement at a time via the queue
+  varQueue = varQueue.then(() => measureFamily(k, list)).catch(() => {});
+}
+async function measureFamily(k, list) {
+  const sorted = [...list].sort((a, b) => a.weight - b.weight);
+  const def = pickDefaultFace(list);
+  const picks = new Set([sorted[0], sorted[sorted.length - 1],
+                         sorted[Math.floor(sorted.length / 2)]]);
+  picks.delete(def);
+  const dInk = await faceInk(def.id);
+  let avg = 1;
+  if (dInk) {
+    let sum = 0, n = 0;
+    for (const o of picks) {
+      const ink = await faceInk(o.id);
+      if (ink) { sum += inkOverlap(dInk, ink); n++; }
+    }
+    if (n) avg = sum / n;
+  }
+  FAMVAR.set(k, avg);
+  vsimCache[k] = [list.length, avg];
+  try { localStorage.setItem("fa_vsim", JSON.stringify(vsimCache)); } catch (e) {}
+  maybeAutoExpand(k);
+}
+function maybeAutoExpand(k) {
+  const v = FAMVAR.get(k);
+  if (v < VARY_THRESHOLD && !USER_FAM.has(k) && !EXPANDED.has(k)) {
+    EXPANDED.add(k);
+    debouncedSections();
+  }
+}
+
+/* global expand/collapse toggle in the toolbar */
+function groupableKeys() {
+  const by = new Map();
+  for (const f of DATA.fonts) {
+    const k = familyKey(f.family);
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(f);
+  }
+  const out = [];
+  for (const [k, list] of by)
+    if (list.length > 1) out.push(k);
+  return out;
+}
+const CARET_RIGHT = `<svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 2.5 10.5 6.5 5.5 10.5"/></svg>`;
+const CARET_DOWN = `<svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 4.5 7.5 9.5 11.5 4.5"/></svg>`;
+function renderFamToggle() {
+  const b = $("#famtoggle");
+  const on = EXPANDED.size > 0;
+  b.classList.toggle("on", on);
+  b.dataset.tip = on ? "collapse every family back to one line"
+                     : "expand every family to one line per weight";
+  b.innerHTML = on ? CARET_DOWN : CARET_RIGHT;
+}
+$("#famtoggle").onclick = () => {
+  if (EXPANDED.size) {
+    for (const k of groupableKeys()) USER_FAM.add(k);   // block auto re-expand
+    EXPANDED.clear();
+  } else {
+    for (const k of groupableKeys()) { EXPANDED.add(k); USER_FAM.add(k); }
+  }
+  renderSections();
+};
 
 function buildRow(f, c, group) {
   const isAlso = f.category !== c.id;
@@ -1210,9 +1343,9 @@ function buildRow(f, c, group) {
     .join("");
   const multiFam = group && new Set(group.map(x => x.family)).size > 1;
   const styleSel = group ? `<span class="stylectl">
-      <select class="stylesel" title="this family has ${group.length} styles; pick one to preview">
+      <select class="stylesel" title="this family has ${group.length} weights; pick one to preview">
         ${group.map(x => `<option value="${x.id}" ${x.id === f.id ? "selected" : ""}>${esc(multiFam ? x.fullname : (x.subfamily || x.fullname))}</option>`).join("")}
-      </select><span class="stylecount">${group.length} styles</span></span>` : "";
+      </select><button class="stylecount" title="show every weight as its own row">${group.length} weights ▾</button></span>` : "";
   const copies = f.copies
     ? `<span class="flag" style="color:#999" title="this face exists in ${f.copies.length} places:&#10;${esc(f.copies.join("\n"))}">×${f.copies.length}</span>`
     : "";
@@ -1291,6 +1424,13 @@ function buildRow(f, c, group) {
     const nf = group.find(x => x.id === ss.value);
     if (nf) row.replaceWith(buildRow(nf, c, group));
   };
+  const sc = row.querySelector(".stylecount");
+  if (sc) sc.onclick = () => {
+    const k = familyKey(f.family);
+    EXPANDED.add(k);
+    USER_FAM.add(k);   // manual choice: the auto-expander leaves it alone
+    renderSections();
+  };
   row.querySelector(".fname").onclick = () =>
     api("/api/reveal", { id: f.id });
   const line = row.querySelector(".line");
@@ -1317,14 +1457,34 @@ function renderSections() {
     const sec = document.createElement("section");
     sec.className = "cat-section";
     sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span></div>`;
-    for (const list of byFam.values()) {
-      if (list.length > GROUP_THRESHOLD)
-        sec.appendChild(buildRow(pickDefaultFace(list), c, list));
-      else
+    for (const [k, list] of byFam) {
+      // one row per typeface, always: any key with more than one face
+      // collapses (the caret and the variance auto-expander show more)
+      if (list.length > 1) {
+        if (EXPANDED.has(k)) {
+          const fh = document.createElement("div");
+          fh.className = "famhead";
+          fh.innerHTML = `<span>${esc(groupBaseName(list))}</span>
+            <span class="famcount">${list.length} weights</span>
+            <button title="back to one row">collapse ▴</button>`;
+          fh.querySelector("button").onclick = () => {
+            EXPANDED.delete(k);
+            USER_FAM.add(k);   // manual choice: the auto-expander leaves it alone
+            renderSections();
+          };
+          sec.appendChild(fh);
+          for (const f of list) sec.appendChild(buildRow(f, c, null));
+        } else {
+          queueMeasure(k, list);   // looks-very-different families auto-expand
+          sec.appendChild(buildRow(pickDefaultFace(list), c, list));
+        }
+      } else {
         for (const f of list) sec.appendChild(buildRow(f, c, null));
+      }
     }
     wrap.appendChild(sec);
   }
+  renderFamToggle();
 }
 
 /* ---------------- header controls ---------------- */

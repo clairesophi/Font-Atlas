@@ -11,6 +11,7 @@ Nothing is ever moved, copied, or modified.
 """
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -25,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.5"
+VERSION = "1.1.6"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -51,7 +52,7 @@ LEGACY_INDEX = os.path.join(APP_DIR, "data", "index.json")
 PORT = 8765
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
-CLASSIFIER_VERSION = 9  # bump to force re-classification of unchanged files
+CLASSIFIER_VERSION = 10  # bump to force re-classification of unchanged files
 
 # Tag categories applied automatically by name at scan time.
 AUTO_TAGS = [("trial", "Trial Fonts", ["trial", "demo version", "unlicensed"])]
@@ -408,6 +409,56 @@ def classify(face, filename):
     return "unsorted", 0.0
 
 
+# family key, mirrored from familyKey() in index.html: KEEP THE TWO IN SYNC
+STYLE_WORD = (r"thin|hairline|ultra ?light|extra ?light|light|regular|normal|"
+              r"book|text|medium|semi ?bold|demi ?bold|bold|extra ?bold|heavy|"
+              r"black|fat|poster|italics|italic|oblique|slanted|upright|roman|"
+              r"condensed|compressed|narrow|wide|extended|expanded|outline|"
+              r"inline|shadow|solid|rounded|display|caption|deck|micro|"
+              r"subhead|headline|small ?caps|smallcaps|alternates|alternate|"
+              r"alt|variable|var|vf|pro|std|semi|demi|ultra|extra|\d+ ?pt")
+STYLE_CHAIN = r"(?:%s)(?:[\s\-_]*(?:%s))*" % (STYLE_WORD, STYLE_WORD)
+STYLE_ANYWHERE = re.compile(r"[\s\-_]+%s(?=[\s\-_]|$)" % STYLE_CHAIN, re.I)
+STYLE_TRAILING = re.compile(r"[\s\-_]+(%s|\d+)$" % STYLE_CHAIN, re.I)
+HASH_TAIL = re.compile(r"[\s\-_]+(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{6,}$")
+
+
+def family_key(name):
+    s = (name or "").strip()
+    while True:
+        t = HASH_TAIL.sub("", STYLE_TRAILING.sub(
+            "", re.sub(r"[\s\-_]+$", "", s))).strip()
+        if t == s or len(t) < 3:
+            break
+        s = t
+    t = STYLE_ANYWHERE.sub("", s).strip()
+    if len(t) >= 3:
+        s = t
+    return re.sub(r"[\s\-_]+", "", s).lower()
+
+
+def harmonize_families():
+    """A typeface's faces all live in ONE category. Hand-sorted (locked)
+    faces vote first and are never moved; then classified faces; unsorted
+    only counts when nothing else is there."""
+    groups = {}
+    for e in INDEX["fonts"].values():
+        groups.setdefault(family_key(e.get("family", "")), []).append(e)
+    for es in groups.values():
+        if len(es) < 2:
+            continue
+        pool = ([e for e in es if e.get("locked")]
+                or [e for e in es if e.get("category") != "unsorted"]
+                or es)
+        counts = {}
+        for e in pool:
+            counts[e["category"]] = counts.get(e["category"], 0) + 1
+        cat = max(counts, key=counts.get)
+        for e in es:
+            if not e.get("locked"):
+                e["category"] = cat
+
+
 # ---------------------------------------------------------------------- index
 
 LOCK = threading.Lock()
@@ -493,6 +544,7 @@ def load_index():
             e["also"] = sorted(set(e.get("also", [])) | {tag})
         if e.get("also"):
             e["also"] = [t for t in e["also"] if t in tag_ids]
+    harmonize_families()
 
 
 def save_index():
@@ -615,6 +667,7 @@ def scan_worker(roots):
                         e["path"].startswith(os.path.abspath(os.path.expanduser(r)))
                         for r in roots) and not os.path.exists(e["path"]):
                     del INDEX["fonts"][fid]
+            harmonize_families()
             save_index()
     except Exception as exc:  # keep the app alive whatever a weird file does
         SCAN["error"] = str(exc)
