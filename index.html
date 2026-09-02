@@ -170,6 +170,16 @@
   #verline a:hover { color: var(--accent); }
 
   /* specimen list */
+  /* filter banner: which tags / groups the list is narrowed to */
+  #filterhead { margin-top: 28px; padding: 6px 2px 5px;
+    border-top: 3px solid var(--accent); border-bottom: 1px solid var(--accent);
+    color: var(--accent); font-size: 10.5px; font-weight: 700;
+    letter-spacing: .2em; text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: baseline; }
+  #filterhead b { font-weight: 700; }
+  #filterhead a { color: var(--accent); font-weight: 400; letter-spacing: .1em;
+    cursor: pointer; text-decoration: underline; }
+  @media print { #filterhead a { display: none; } }
   .cat-section { margin-top: 36px; }
   .cat-head { font-size: 10.5px; font-weight: 700; letter-spacing: .2em;
     text-transform: uppercase; color: var(--ink);
@@ -770,8 +780,14 @@ async function refresh() {
   DATA = await api("/api/data");
   FONT_V = new Map(DATA.fonts.map(f => [f.id, f.mtime || 0]));
   FONT_SIZE = new Map(DATA.fonts.map(f => [f.id, f.size || 0]));
+  FONT_BY_ID = new Map(DATA.fonts.map(f => [f.id, f]));
+  UNSORTED_TODO = DATA.fonts
+    .filter(f => f.category === "unsorted" && !f.locked && f.has_latin !== false
+      && !(f.also || []).some(t => EXCLUSIVE_TAGS.includes(t)))
+    .sort((a, b) => (a.size || 0) - (b.size || 0)).map(f => f.id);
   render();
 }
+let FONT_BY_ID = new Map(), UNSORTED_TODO = [];
 let FONT_SIZE = new Map();
 
 /* versioned font URL: the file's mtime busts the cache only when the font
@@ -801,6 +817,78 @@ async function loadFace(id) {
                  : new FontFace("ff_" + id, `url("${url}")`);
   await ff.load();
   document.fonts.add(ff);
+  maybeVisualSort(id);
+}
+
+/* ---- visual sort for leftovers: a font the scan couldn't place gets a
+   look at its own letters once loaded. Capital I and lowercase l: flat
+   feet = sans; wide thin feet = serif; wide thick feet = slab. Fills
+   Unsorted only, marks the result "uncertain" for Review, never touches
+   a hand sort. ---- */
+const VIS_DONE = new Set();
+let visPending = {}, visTimer = null;
+function glyphRows(id, ch, fallback) {
+  const c = document.createElement("canvas");
+  c.width = 260; c.height = 260;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.font = '200px "ff_' + id + '", ' + (fallback || "serif");
+  g.textBaseline = "alphabetic";
+  g.fillText(ch, 30, 220);
+  const d = g.getImageData(0, 0, 260, 260).data;
+  const rows = [];
+  let top = -1, bot = -1;
+  for (let y = 0; y < 260; y++) {
+    let l = -1, r = -1;
+    for (let x = 0; x < 260; x++)
+      if (d[(y * 260 + x) * 4 + 3] > 80) { if (l < 0) l = x; r = x; }
+    const w = l < 0 ? 0 : r - l + 1;
+    rows.push(w);
+    if (w) { if (top < 0) top = y; bot = y; }
+  }
+  return { rows, top, bot };
+}
+function feetOf(id, ch) {
+  const { rows, top, bot } = glyphRows(id, ch, "serif");
+  if (top < 0) return null;
+  // a glyph the font lacks is drawn by the fallback instead: rendering
+  // with two different fallbacks then disagrees, so skip such fonts
+  // (webfont subsets, math-only fonts) rather than judge Times New Roman
+  const alt = glyphRows(id, ch, "sans-serif").rows;
+  for (let y = 0; y < rows.length; y++) if (rows[y] !== alt[y]) return null;
+  const h = bot - top + 1;
+  const mid = rows.slice(top + Math.floor(h * .35), top + Math.floor(h * .65))
+    .filter(Boolean).sort((a, b) => a - b);
+  const stem = mid[Math.floor(mid.length / 2)] || 1;
+  const foot = Math.max(...rows.slice(bot - Math.floor(h * .12), bot + 1));
+  let thick = 0;
+  for (let y = bot; y >= top && rows[y] > stem * 1.25; y--) thick++;
+  return { ratio: foot / stem, thick: thick / stem };
+}
+function visualCategory(id) {
+  const I = feetOf(id, "I"), l = feetOf(id, "l");
+  if (!I || !l) return null;
+  if (I.ratio >= 1.5 && l.ratio >= 1.5)
+    return (I.thick + l.thick) / 2 >= 0.7 ? "slab" : "serif";
+  return "sans";
+}
+function maybeVisualSort(id) {
+  const f = FONT_BY_ID.get(id);
+  if (!f || VIS_DONE.has(id)) return;
+  if (f.category !== "unsorted" || f.locked || f.has_latin === false) return;
+  if ((f.also || []).some(t => EXCLUSIVE_TAGS.includes(t))) return;
+  VIS_DONE.add(id);
+  let cat = null;
+  try { cat = visualCategory(id); } catch (e) { cat = null; }
+  if (!cat) return;
+  (visPending[cat] = visPending[cat] || []).push(id);
+  clearTimeout(visTimer);
+  visTimer = setTimeout(flushVisualSort, 3000);   // one refresh when it quiets down
+}
+async function flushVisualSort() {
+  const batch = visPending; visPending = {};
+  for (const [cat, ids] of Object.entries(batch))
+    await api("/api/assign", { ids, category: cat, if_unsorted: true });
+  refresh();
 }
 /* drop stored fonts whose file has changed or gone (URLs carry the mtime) */
 async function pruneFontStore() {
@@ -902,15 +990,19 @@ function prefetch() {
   for (let i = 0; i <= prefetchCursor && i < LINES.length; i++) rest.push(i);
   const sz = i => FONT_SIZE.get(LINES[i].dataset.id) || 0;
   rest.sort((a, b) => sz(a) - sz(b));
-  for (const i of ahead.concat(rest)) {
+  // Unsorted fonts load even when their category is hidden: the visual
+  // leftover sort needs their letters (ids, not rows; smallest first)
+  const items = ahead.map(i => LINES[i])
+    .concat(UNSORTED_TODO, rest.map(i => LINES[i]));
+  for (const item of items) {
     if (inflight >= LOAD_MAX || started >= PREFETCH_MAX) break;
-    const el = LINES[i];
-    const id = el.dataset.id;
-    if (!el.isConnected || loadedFonts.has(id)) continue;
-    if ((FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
-    io.unobserve(el);
+    const el = typeof item === "string" ? null : item;
+    const id = el ? el.dataset.id : item;
+    if (el && !el.isConnected) continue;
+    if (loadedFonts.has(id) || (FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
+    if (el) io.unobserve(el);
     inflight++; started++;
-    ensureFont(id, el).finally(() => {
+    (el ? ensureFont(id, el) : loadFontById(id)).finally(() => {
       inflight--;
       scheduleLoadStatus();
       if (loadQueue.length) pumpLoads(); else prefetch();   // keep chaining
@@ -1698,6 +1790,23 @@ function buildRow(f, c, group) {
 function renderSections() {
   const wrap = $("#sections");
   wrap.innerHTML = "";
+  // narrowed by tags or groups? say so above the list, in red
+  const tagNames = DATA.categories.filter(c => c.kind === "tag" && c.visible).map(c => c.name);
+  const grpNames = (DATA.groups || []).filter(g => GRP_ON.has(g.id)).map(g => g.name);
+  if (tagNames.length || grpNames.length) {
+    const fh = document.createElement("div");
+    fh.id = "filterhead";
+    const parts = [];
+    if (grpNames.length) parts.push("group" + (grpNames.length > 1 ? "s" : "") + ": " + grpNames.map(esc).join(" · "));
+    if (tagNames.length) parts.push("tag" + (tagNames.length > 1 ? "s" : "") + ": " + tagNames.map(esc).join(" · "));
+    fh.innerHTML = `<span>only <b>${parts.join(" &nbsp;+&nbsp; ")}</b></span><a>show everything</a>`;
+    fh.querySelector("a").onclick = () => {
+      for (const c of DATA.categories) if (c.kind === "tag") c.visible = false;
+      GRP_ON.clear(); saveGrpOn();
+      pushCats();
+    };
+    wrap.appendChild(fh);
+  }
   for (const c of DATA.categories) {
     if (c.kind === "tag") continue;   // the sheet's headings are categories only
     if (!c.visible) continue;         // checking a group turns needed boxes on
@@ -1897,7 +2006,12 @@ $("#startscan").onclick = async () => {
   const custom = $("#customroot").value.trim();
   if (custom) roots.push(custom);
   if (!roots.length) return notice("Pick a folder", "Pick at least one folder to scan.");
-  await api("/api/scan", { roots });
+  let tag_roots = [];
+  if (custom && await askConfirm("Import subfolders as tags?",
+      `The folders directly inside ${custom} (one per foundry, say) become tags on the fonts inside them. You can always delete a tag later.`,
+      "yes, as tags"))
+    tag_roots = [custom];
+  await api("/api/scan", { roots, tag_roots });
   showProgress();
 };
 let pollTimer = null;

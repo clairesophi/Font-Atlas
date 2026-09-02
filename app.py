@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.14"
+VERSION = "1.1.15"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -497,12 +497,36 @@ def harmonize_families():
                 e["category"] = cat
 
 
+def ensure_tag(name):
+    """Tag id for `name`, creating the tag if needed. Caller holds LOCK."""
+    for c in INDEX["categories"]:
+        if c.get("kind") == "tag" and c["name"].lower() == name.lower():
+            return c["id"]
+    tid = "t" + sha1(name.lower().encode("utf-8")).hexdigest()[:8]
+    INDEX["categories"].insert(max(0, len(INDEX["categories"]) - 1),
+                               {"id": tid, "name": name, "visible": False,
+                                "kind": "tag"})
+    return tid
+
+
+def folder_tag_for(path):
+    """When a scan root was chosen with "subfolders as tags", the folder
+    directly under that root becomes a tag on every font inside it."""
+    for root in SCAN.get("tag_roots") or []:
+        root = os.path.abspath(os.path.expanduser(root))
+        if path.startswith(root + os.sep):
+            rel = path[len(root) + 1:]
+            if os.sep in rel:
+                return ensure_tag(rel.split(os.sep)[0])
+    return None
+
+
 # ---------------------------------------------------------------------- index
 
 LOCK = threading.Lock()
 INDEX = {"fonts": {}, "categories": []}
 SCAN = {"running": False, "dirs": 0, "found": 0, "current": "", "error": "",
-        "done_at": 0, "roots": []}
+        "done_at": 0, "roots": [], "tag_roots": []}
 
 
 def load_index():
@@ -676,6 +700,9 @@ def index_file(path, seen_ids):
                 "uncertain": (old.get("uncertain", False) if old
                               else conf < 0.7),
             }
+            ftag = folder_tag_for(path)
+            if ftag:
+                entry["also"] = sorted(set(entry["also"]) | {ftag})
             INDEX["fonts"][fid] = entry
             seen_ids.add(fid)
         n += 1
@@ -1136,7 +1163,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             roots = body.get("roots") or default_scan_roots()[0]
             SCAN.update(running=True, dirs=0, found=0, current="", error="",
-                        roots=roots)
+                        roots=roots, tag_roots=body.get("tag_roots") or [])
             threading.Thread(target=scan_worker, args=(roots,),
                              daemon=True).start()
             self._json({"ok": True})
@@ -1163,6 +1190,16 @@ class Handler(BaseHTTPRequestHandler):
                 for fid in ids:
                     e = INDEX["fonts"].get(fid)
                     if not e:
+                        continue
+                    if body.get("if_unsorted"):
+                        # the browser looked at the letters of a font the
+                        # scan couldn't place (serif feet, foot thickness);
+                        # fills only Unsorted, never overrides a hand sort
+                        if (cat and e.get("category") == "unsorted"
+                                and not e.get("locked")):
+                            e["category"] = e["builtin"] = e["suggested"] = cat
+                            e["confidence"] = 0.6
+                            e["uncertain"] = True
                         continue
                     if body.get("add_to"):
                         add = body["add_to"]
