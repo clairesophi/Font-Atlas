@@ -178,8 +178,10 @@
   .specimen:hover { background: var(--hover); }
   .line { font-size: var(--size); line-height: 1.35; word-break: break-word;
     font-family: sans-serif; min-height: 1.1em; overflow: hidden;
-    max-height: 6em; }
-  .line.loading { color: #e2e0db; }
+    max-height: 6em; transition: color .35s ease; }
+  /* grey while the real font is still coming, black once it's in: so you
+     can always tell a stand-in from the real thing */
+  .line.loading { color: #b4b2ac; }
   .line.broken { color: var(--accent); opacity: .55; font-size: 12px;
     font-family: var(--serif); font-style: italic; }
   .caption { display: flex; align-items: center; gap: 8px; margin-top: 4px;
@@ -765,12 +767,67 @@ let FONT_V = new Map();
 function fontURL(id) { return `/font/${id}?v=${FONT_V.get(id) || 0}`; }
 
 /* ---------------- font lazy loading ---------------- */
+/* rows near the viewport queue up and load a few at a time, nearest the
+   top first; a row scrolled away before its turn is skipped (and re-queued
+   if it comes back), so a fast scroll never piles up dozens of downloads */
+const LOAD_MAX = 6;
+let loadQueue = [], inflight = 0;
 const io = new IntersectionObserver(entries => {
-  for (const en of entries) if (en.isIntersecting) {
-    io.unobserve(en.target);
-    ensureFont(en.target.dataset.id, en.target);
+  for (const en of entries) {
+    en.target.dataset.near = en.isIntersecting ? "1" : "0";
+    if (en.isIntersecting) {
+      prefetchCursor = Math.max(prefetchCursor, +en.target.dataset.idx || 0);
+      if (!en.target.dataset.queued) {
+        en.target.dataset.queued = "1";
+        loadQueue.push(en.target);
+      }
+    }
   }
-}, { rootMargin: "400px" });
+  pumpLoads();
+}, { rootMargin: "300px" });
+
+function pumpLoads() {
+  if (inflight >= LOAD_MAX || !loadQueue.length) { schedulePrefetch(); return; }
+  loadQueue = loadQueue.filter(el => el.isConnected);
+  const dist = new Map(loadQueue.map(el =>
+    [el, Math.abs(el.getBoundingClientRect().top)]));
+  loadQueue.sort((a, b) => dist.get(a) - dist.get(b));
+  while (inflight < LOAD_MAX && loadQueue.length) {
+    const el = loadQueue.shift();
+    if (el.dataset.near !== "1") { delete el.dataset.queued; continue; }
+    io.unobserve(el);
+    inflight++;
+    ensureFont(el.dataset.id, el).finally(() => { inflight--; pumpLoads(); });
+  }
+  schedulePrefetch();
+}
+
+/* idle prefetch: once the visible rows are done and scrolling has paused,
+   keep loading the rows AHEAD (a few hundred, two at a time) so scrolling
+   on is instant; any scroll pauses it and the viewport takes the slots */
+const PREFETCH_MAX = 2, PREFETCH_AHEAD = 400;
+let LINES = [], prefetchCursor = -1, prefetchTimer = null;
+function schedulePrefetch() {
+  clearTimeout(prefetchTimer);
+  prefetchTimer = setTimeout(prefetch, 600);
+}
+function prefetch() {
+  if (document.visibilityState === "hidden" || loadQueue.length) return;
+  let started = 0;
+  const end = Math.min(LINES.length, prefetchCursor + 1 + PREFETCH_AHEAD);
+  for (let i = prefetchCursor + 1; i < end; i++) {
+    if (inflight >= LOAD_MAX || started >= PREFETCH_MAX) break;
+    const el = LINES[i];
+    if (!el.isConnected || loadedFonts.has(el.dataset.id)) continue;
+    io.unobserve(el);
+    inflight++; started++;
+    ensureFont(el.dataset.id, el).finally(() => {
+      inflight--;
+      if (loadQueue.length) pumpLoads(); else prefetch();   // keep chaining
+    });
+  }
+}
+window.addEventListener("scroll", schedulePrefetch, { passive: true });
 
 async function ensureFont(id, el) {
   let state = loadedFonts.get(id);
@@ -928,7 +985,7 @@ function render() {
   $("#revcount").textContent = n;
   $("#revcount").style.display = n ? "" : "none";
   $("#empty").style.display = DATA.fonts.length ? "none" : "";
-  buildWordmark();
+  setTimeout(buildWordmark, 1500);   // the specimens' fonts come first
   alignSideTop();
 }
 
@@ -1529,6 +1586,11 @@ function renderSections() {
     wrap.appendChild(sec);
   }
   renderFamToggle();
+  // document-order line list for the idle prefetch
+  LINES = [...wrap.querySelectorAll(".line")];
+  LINES.forEach((el, i) => { el.dataset.idx = i; });
+  prefetchCursor = -1;
+  schedulePrefetch();
 }
 
 /* ---------------- header controls ---------------- */

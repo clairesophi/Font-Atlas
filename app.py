@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.9"
+VERSION = "1.1.10"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -49,7 +49,7 @@ def user_data_dir():
 DATA_DIR = user_data_dir()
 INDEX_PATH = os.path.join(DATA_DIR, "index.json")
 LEGACY_INDEX = os.path.join(APP_DIR, "data", "index.json")
-PORT = 8765
+PORT = int(os.environ.get("PORT") or 8765)   # env override for dev only
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
 CLASSIFIER_VERSION = 10  # bump to force re-classification of unchanged files
@@ -956,6 +956,11 @@ MIME = {".ttf": "font/ttf", ".otf": "font/otf", ".ttc": "font/collection",
 
 
 class Handler(BaseHTTPRequestHandler):
+    # keep-alive: the browser reuses a few connections for the hundreds of
+    # font requests instead of a fresh TCP handshake for each (every
+    # response here sends Content-Length, which HTTP/1.1 requires)
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *args):
         pass
 
