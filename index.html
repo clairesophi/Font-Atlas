@@ -928,6 +928,7 @@ function scheduleLoadStatus() {
   if (loadStatusTimer) return;
   loadStatusTimer = setTimeout(() => { loadStatusTimer = null; updateLoadStatus(); }, 250);
 }
+const FAILED = new Set();   // tried and failed this session: the bar moves on
 function updateLoadStatus() {
   let total = 0, ready = 0;
   for (const ln of LINES) {
@@ -935,9 +936,11 @@ function updateLoadStatus() {
     if ((FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
     total++;
     const s = loadedFonts.get(id);
-    if (s === "ok" || s === "broken") ready++;
+    if (s === "ok" || s === "broken" || FAILED.has(id)) ready++;
   }
-  const done = !total || ready >= total;
+  const done = !total || ready >= total || (!inflight && !loadQueue.length
+    && !LINES.some(ln => !loadedFonts.has(ln.dataset.id)
+                         && (FONT_SIZE.get(ln.dataset.id) || 0) <= BIG_FONT));
   $("#loadstatus").style.display = done ? "none" : "flex";
   if (!done) {
     const shown = ready - ready % 10;   // counts by tens, not one by one
@@ -970,6 +973,7 @@ async function ensureFont(id, el) {
         reportNoPreview(id);
       } else {
         loadedFonts.delete(id);
+        FAILED.add(id);
       }
     }
     notifyWaiters(id);
@@ -1028,6 +1032,7 @@ async function loadFontById(id) {
     loadedFonts.set(id, "ok");
   } catch (e) {
     loadedFonts.delete(id);
+    FAILED.add(id);
   }
   notifyWaiters(id);
   return loadedFonts.get(id) === "ok";
