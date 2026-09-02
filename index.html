@@ -796,21 +796,29 @@ const io = new IntersectionObserver(entries => {
 }, { rootMargin: "300px" });
 
 function pumpLoads() {
-  if (inflight >= LOAD_MAX || !loadQueue.length) { schedulePrefetch(); return; }
-  loadQueue = loadQueue.filter(el => el.isConnected);
-  const dist = new Map(loadQueue.map(el =>
-    [el, Math.abs(el.getBoundingClientRect().top)]));
-  loadQueue.sort((a, b) => dist.get(a) - dist.get(b));
-  while (inflight < LOAD_MAX && loadQueue.length) {
-    const el = loadQueue.shift();
-    if (el.dataset.near !== "1") { delete el.dataset.queued; continue; }
-    io.unobserve(el);
-    inflight++;
-    ensureFont(el.dataset.id, el).finally(() => {
-      inflight--; scheduleLoadStatus(); pumpLoads();
-    });
+  // drop rows that left the viewport or the page before their turn
+  loadQueue = loadQueue.filter(el => {
+    const keep = el.isConnected && el.dataset.near === "1";
+    if (!keep) delete el.dataset.queued;
+    return keep;
+  });
+  if (loadQueue.length && inflight < LOAD_MAX) {
+    const dist = new Map(loadQueue.map(el =>
+      [el, Math.abs(el.getBoundingClientRect().top)]));
+    loadQueue.sort((a, b) => dist.get(a) - dist.get(b));
+    while (inflight < LOAD_MAX && loadQueue.length) {
+      const el = loadQueue.shift();
+      io.unobserve(el);
+      inflight++;
+      ensureFont(el.dataset.id, el).finally(() => {
+        inflight--; scheduleLoadStatus(); pumpLoads();
+      });
+    }
   }
-  schedulePrefetch();
+  // nothing (more) on screen to do: keep the preload chain going NOW,
+  // not after an idle timer, otherwise layout shifts from fonts arriving
+  // keep resetting the timer and the preload crawls
+  if (!loadQueue.length) prefetch();
 }
 
 /* idle prefetch: once the visible rows are done and scrolling has paused,
@@ -820,13 +828,14 @@ const PREFETCH_MAX = 2;
 const PREFETCH_AHEAD = 3000;   // rows preloaded beyond the viewport; past
                                // that (six-figure libraries) it's on-demand
 const BIG_FONT = 5e6;          // giants (CJK, emoji) load only when reached
-let LINES = [], prefetchCursor = -1, prefetchTimer = null;
+let LINES = [], prefetchCursor = -1, prefetchTimer = null, lastScroll = 0;
 function schedulePrefetch() {
   clearTimeout(prefetchTimer);
-  prefetchTimer = setTimeout(prefetch, 600);
+  prefetchTimer = setTimeout(prefetch, 400);
 }
 function prefetch() {
   if (document.visibilityState === "hidden" || loadQueue.length) return;
+  if (performance.now() - lastScroll < 300) { schedulePrefetch(); return; }
   let started = 0;
   // saved groups first: opening one should show finished fonts right away
   for (const g of DATA.groups || []) {
@@ -841,12 +850,17 @@ function prefetch() {
       });
     }
   }
-  // then ahead of the reader, then whatever is above
-  const ahead = [], behind = [];
+  // then the next screenful in order, then everything else smallest file
+  // first: bytes are the bottleneck, so small fonts finish rows fastest
+  // and the multi-megabyte ones come last
+  const ahead = [], rest = [];
   const end = Math.min(LINES.length, prefetchCursor + 1 + PREFETCH_AHEAD);
-  for (let i = prefetchCursor + 1; i < end; i++) ahead.push(i);
-  for (let i = 0; i <= prefetchCursor && i < LINES.length; i++) behind.push(i);
-  for (const i of ahead.concat(behind)) {
+  for (let i = prefetchCursor + 1; i < end; i++)
+    (ahead.length < 40 ? ahead : rest).push(i);
+  for (let i = 0; i <= prefetchCursor && i < LINES.length; i++) rest.push(i);
+  const sz = i => FONT_SIZE.get(LINES[i].dataset.id) || 0;
+  rest.sort((a, b) => sz(a) - sz(b));
+  for (const i of ahead.concat(rest)) {
     if (inflight >= LOAD_MAX || started >= PREFETCH_MAX) break;
     const el = LINES[i];
     const id = el.dataset.id;
@@ -861,7 +875,10 @@ function prefetch() {
     });
   }
 }
-window.addEventListener("scroll", schedulePrefetch, { passive: true });
+window.addEventListener("scroll", () => {
+  lastScroll = performance.now();   // mid-scroll: the viewport gets the slots
+  schedulePrefetch();
+}, { passive: true });
 
 /* "loading fonts 311 / 1457" in the header while the preload runs */
 let loadStatusTimer = null;
