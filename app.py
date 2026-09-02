@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.12"
+VERSION = "1.1.13"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -1000,6 +1000,40 @@ def deduped_fonts():
 
 # --------------------------------------------------------------------- server
 
+FONT_CACHE = os.path.join(DATA_DIR, "fontcache")
+
+
+def font_bytes(entry, accept_encoding):
+    """The font file to send, deflated when the browser accepts it: bytes
+    over the wire are the preview bottleneck and TTF/OTF shrink by about
+    half. Compressed once per (file, mtime) into the user data dir."""
+    path, ext = entry["path"], entry.get("ext")
+    if ext in (".woff", ".woff2") or "deflate" not in accept_encoding:
+        with open(path, "rb") as f:
+            return f.read(), None
+    st = os.stat(path)
+    cpath = os.path.join(FONT_CACHE, "%s-%d.z" % (entry["id"], int(st.st_mtime)))
+    try:
+        with open(cpath, "rb") as f:
+            return f.read(), "deflate"
+    except OSError:
+        pass
+    with open(path, "rb") as f:
+        raw = f.read()
+    packed = zlib.compress(raw, 6)
+    if len(packed) > len(raw) * 0.9:
+        return raw, None       # not worth it (already-compressed tables)
+    try:
+        os.makedirs(FONT_CACHE, exist_ok=True)
+        tmp = cpath + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(packed)
+        os.replace(tmp, cpath)
+    except OSError:
+        pass
+    return packed, "deflate"
+
+
 MIME = {".ttf": "font/ttf", ".otf": "font/otf", ".ttc": "font/collection",
         ".otc": "font/collection", ".woff": "font/woff", ".woff2": "font/woff2",
         ".dfont": "application/octet-stream"}
@@ -1066,14 +1100,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(404)
                 return
             try:
-                with open(entry["path"], "rb") as f:
-                    body = f.read()
+                body, encoding = font_bytes(entry, self.headers.get(
+                    "Accept-Encoding", ""))
             except OSError:
                 self.send_error(403)
                 return
             self.send_response(200)
             self.send_header("Content-Type", MIME.get(entry["ext"],
                                                       "application/octet-stream"))
+            if encoding:
+                self.send_header("Content-Encoding", encoding)
             self.send_header("Content-Length", str(len(body)))
             # the client versions font URLs with ?v=<mtime>, so these can
             # cache forever: each font downloads once per browser, ever

@@ -178,6 +178,9 @@
     display: flex; justify-content: space-between; align-items: baseline; }
   .cat-head .count { color: var(--accent); font-size: 10.5px; }
   .specimen { padding: 12px 2px 5px; border-bottom: 1px solid var(--hairline);
+    /* B: rows off screen skip layout and paint entirely, so a font arriving
+       for an unseen row costs nothing until it scrolls into view */
+    content-visibility: auto; contain-intrinsic-size: auto 96px;
     cursor: pointer; user-select: none; -webkit-user-select: none;
     position: relative; }
   .specimen:hover { background: var(--hover); }
@@ -208,6 +211,7 @@
     width: 56px; border-radius: 0; }
   .grpctl select:hover { color: var(--ink); }
   @media print { .grpctl { display: none; } }
+  @media print { .specimen { content-visibility: visible; } }  /* print all rows */
   .caption select { font-size: 10px; letter-spacing: .04em; color: #777;
     border: none; background: none; padding: 1px 0; cursor: pointer;
     width: 105px; border-radius: 0; }
@@ -775,6 +779,42 @@ let FONT_SIZE = new Map();
 let FONT_V = new Map();
 function fontURL(id) { return `/font/${id}?v=${FONT_V.get(id) || 0}`; }
 
+/* persistent font store: bytes from previous sessions are handed straight
+   to the font parser, no network at all; falls back to a plain URL load
+   where the Cache API is unavailable */
+let fontStore = null;
+async function loadFace(id) {
+  const url = fontURL(id);
+  let buf = null;
+  if (window.caches) {
+    try {
+      fontStore = fontStore || await caches.open("fa-fonts");
+      let r = await fontStore.match(url);
+      if (!r) {
+        r = await fetch(url);
+        if (r.ok) fontStore.put(url, r.clone()).catch(() => {});
+      }
+      if (r && r.ok) buf = await r.arrayBuffer();
+    } catch (e) { buf = null; }
+  }
+  const ff = buf ? new FontFace("ff_" + id, buf)
+                 : new FontFace("ff_" + id, `url("${url}")`);
+  await ff.load();
+  document.fonts.add(ff);
+}
+/* drop stored fonts whose file has changed or gone (URLs carry the mtime) */
+async function pruneFontStore() {
+  if (!window.caches) return;
+  try {
+    const c = await caches.open("fa-fonts");
+    const valid = new Set(DATA.fonts.map(f => fontURL(f.id)));
+    for (const req of await c.keys()) {
+      const u = new URL(req.url);
+      if (!valid.has(u.pathname + u.search)) c.delete(req);
+    }
+  } catch (e) {}
+}
+
 /* ---------------- font lazy loading ---------------- */
 /* rows near the viewport queue up and load a few at a time, nearest the
    top first; a row scrolled away before its turn is skipped (and re-queued
@@ -803,8 +843,10 @@ function pumpLoads() {
     return keep;
   });
   if (loadQueue.length && inflight < LOAD_MAX) {
+    // D: order by row index distance from the reader, no layout queries
+    const here = Math.max(prefetchCursor, 0);
     const dist = new Map(loadQueue.map(el =>
-      [el, Math.abs(el.getBoundingClientRect().top)]));
+      [el, Math.abs((+el.dataset.idx || 0) - here)]));
     loadQueue.sort((a, b) => dist.get(a) - dist.get(b));
     while (inflight < LOAD_MAX && loadQueue.length) {
       const el = loadQueue.shift();
@@ -898,7 +940,8 @@ function updateLoadStatus() {
   const done = !total || ready >= total;
   $("#loadstatus").style.display = done ? "none" : "flex";
   if (!done) {
-    $("#loadstatustext").textContent = `loading fonts ${ready} / ${total}`;
+    const shown = ready - ready % 10;   // counts by tens, not one by one
+    $("#loadstatustext").textContent = `loading fonts ${shown} / ${total}`;
     $("#loadstatusfill").style.width = Math.round(100 * ready / total) + "%";
   }
 }
@@ -913,9 +956,7 @@ async function ensureFont(id, el) {
   } else {
     loadedFonts.set(id, "loading");
     try {
-      const ff = new FontFace("ff_" + id, `url("${fontURL(id)}")`);
-      await ff.load();
-      document.fonts.add(ff);
+      await loadFace(id);
       loadedFonts.set(id, "ok");
     } catch (e) {
       // If the server still serves the file fine, the font itself is
@@ -952,9 +993,20 @@ function reportNoPreview(id) {
 const waiters = new Map();
 function waitFor(id) { return new Promise(r => (waiters.get(id) || waiters.set(id, []).get(id)).push(r)); }
 function notifyWaiters(id) { (waiters.get(id) || []).forEach(r => r()); waiters.delete(id); }
+/* A: fonts are applied in batches (one layout pass per ~120ms) instead of
+   one reflow of the whole page per arriving font */
+let applyQueue = [], applyTimer = null;
 function applyFont(el, id) {
-  el.classList.remove("loading");
-  el.style.fontFamily = `"ff_${id}", sans-serif`;
+  applyQueue.push([el, id]);
+  if (!applyTimer) applyTimer = setTimeout(flushApply, 120);
+}
+function flushApply() {
+  applyTimer = null;
+  const q = applyQueue; applyQueue = [];
+  for (const [el, id] of q) {
+    el.classList.remove("loading");
+    el.style.fontFamily = `"ff_${id}", sans-serif`;
+  }
 }
 function markBroken(el) {
   el.classList.remove("loading");
@@ -972,9 +1024,7 @@ async function loadFontById(id) {
   }
   loadedFonts.set(id, "loading");
   try {
-    const ff = new FontFace("ff_" + id, `url("${fontURL(id)}")`);
-    await ff.load();
-    document.fonts.add(ff);
+    await loadFace(id);
     loadedFonts.set(id, "ok");
   } catch (e) {
     loadedFonts.delete(id);
@@ -2244,6 +2294,7 @@ $("#exgo").onclick = async () => {
     setSidebar(localStorage.getItem("fa_sidebar") !== "closed");
   } catch (e) {}
   await refresh();
+  setTimeout(pruneFontStore, 8000);   // housekeeping, after the first rush
   if (!DATA.fonts.length && !DATA.scan.running) openScan();
   if (DATA.scan.running) { openScan(); showProgress(); }
 })();
