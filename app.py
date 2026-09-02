@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.15"
+VERSION = "1.1.16"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -647,13 +647,17 @@ def index_file(path, seen_ids):
                      and probe.get("size") == st.st_size
                      and probe.get("cv") == CLASSIFIER_VERSION)
     if unchanged:
-        # File hasn't changed; keep existing entries (all faces share the file).
+        # File hasn't changed; keep existing entries (all faces share the
+        # file), but a folder tag chosen for THIS scan still applies.
         n = 0
         with LOCK:
+            ftag = folder_tag_for(path)
             for fid, e in INDEX["fonts"].items():
                 if e["path"] == path:
                     seen_ids.add(fid)
                     n += 1
+                    if ftag and ftag not in e.get("also", []):
+                        e["also"] = sorted(set(e.get("also", [])) | {ftag})
         return n
     faces = parse_font_file(path)
     n = 0

@@ -2007,9 +2007,8 @@ $("#startscan").onclick = async () => {
   if (custom) roots.push(custom);
   if (!roots.length) return notice("Pick a folder", "Pick at least one folder to scan.");
   let tag_roots = [];
-  if (custom && await askConfirm("Import subfolders as tags?",
-      `The folders directly inside ${custom} (one per foundry, say) become tags on the fonts inside them. You can always delete a tag later.`,
-      "yes, as tags"))
+  if (custom && await askConfirm("Want to import subfolders as tags?", "",
+      "yes"))
     tag_roots = [custom];
   await api("/api/scan", { roots, tag_roots });
   showProgress();
