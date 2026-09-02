@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.10"
+VERSION = "1.1.11"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -52,7 +52,7 @@ LEGACY_INDEX = os.path.join(APP_DIR, "data", "index.json")
 PORT = int(os.environ.get("PORT") or 8765)   # env override for dev only
 
 FONT_EXTS = {".ttf", ".otf", ".ttc", ".otc", ".woff", ".woff2", ".dfont"}
-CLASSIFIER_VERSION = 10  # bump to force re-classification of unchanged files
+CLASSIFIER_VERSION = 11  # bump to force re-classification of unchanged files
 
 # Tag categories applied automatically by name at scan time.
 AUTO_TAGS = [("trial", "Trial Fonts", ["trial", "demo version", "unlicensed"])]
@@ -259,9 +259,13 @@ def _parse_face(data, off, is_woff):
     panose = None
     weight = 400
     os2 = _get_table(data, tables, "OS/2")
+    fclass = 0
     if os2 and len(os2) >= 42:
         weight = struct.unpack_from(">H", os2, 4)[0]
         panose = list(os2[32:42])
+        # sFamilyClass: the designer's own IBM class (serif family, sans,
+        # script, ornamental, symbolic); 0 when unset
+        fclass = (struct.unpack_from(">h", os2, 30)[0] >> 8) & 0xFF
 
     fixed_pitch = False
     post = _get_table(data, tables, "post")
@@ -286,6 +290,7 @@ def _parse_face(data, off, is_woff):
         "fullname": fullname,
         "weight": weight,
         "panose": panose,
+        "fclass": fclass,
         "fixed_pitch": fixed_pitch,
         "has_latin": has_latin,
         "sample": sample,
@@ -377,6 +382,13 @@ KEYWORDS = [
 ]
 
 
+# OS/2 sFamilyClass high byte -> our category (IBM font classes)
+FAMILY_CLASS = {1: "serif", 2: "serif", 3: "serif",   # oldstyle/transitional/modern
+                4: "slab", 5: "slab",                  # clarendon/slab
+                7: "serif", 8: "sans", 9: "display",   # freeform/sans/ornamental
+                10: "script", 12: "symbols"}
+
+
 def classify(face, filename):
     """-> (category_id, confidence). Suggestion only; the user has final say."""
     hay = " ".join([face["family"], face["subfamily"], face["fullname"],
@@ -388,6 +400,10 @@ def classify(face, filename):
             return cat, conf
     if face.get("has_latin") is False:
         return "world", 0.85
+    # the file's own classification, when the designer filled it in
+    fc = FAMILY_CLASS.get(face.get("fclass") or 0)
+    if fc:
+        return fc, 0.8
     p = face.get("panose")
     if p and any(p):
         fam, serif_style = p[0], p[1]
@@ -437,13 +453,35 @@ def family_key(name):
     return re.sub(r"[\s\-_]+", "", s).lower()
 
 
+def family_root(name):
+    """Mirrors familyRoot() in index.html: the key with the last word
+    dropped, for names of three+ words ("" otherwise)."""
+    words = [w for w in re.split(r"[\s\-_]+", (name or "").strip()) if w]
+    return "" if len(words) < 3 else family_key(" ".join(words[:-1]))
+
+
+def group_families(entries):
+    """Mirrors groupFamilies() in index.html: familyKey clusters, then
+    "Name X" / "Name Y" siblings fold into their shared root."""
+    by_key, root_keys = {}, {}
+    for e in entries:
+        k, r = family_key(e.get("family", "")), family_root(e.get("family", ""))
+        by_key.setdefault(k, []).append(e)
+        if r and r != k:
+            root_keys.setdefault(r, set()).add(k)
+    out = {}
+    for k, lst in by_key.items():
+        r = family_root(lst[0].get("family", ""))
+        dest = r if (r and r != k and (r in by_key or len(root_keys.get(r, ())) >= 2)) else k
+        out.setdefault(dest, []).extend(lst)
+    return out
+
+
 def harmonize_families():
     """A typeface's faces all live in ONE category. Hand-sorted (locked)
     faces vote first and are never moved; then classified faces; unsorted
     only counts when nothing else is there."""
-    groups = {}
-    for e in INDEX["fonts"].values():
-        groups.setdefault(family_key(e.get("family", "")), []).append(e)
+    groups = group_families(INDEX["fonts"].values())
     for es in groups.values():
         if len(es) < 2:
             continue
@@ -544,6 +582,18 @@ def load_index():
             e["also"] = sorted(set(e.get("also", [])) | {tag})
         if e.get("also"):
             e["also"] = [t for t in e["also"] if t in tag_ids]
+    # self-heal: an old reset stripped the derived tags; they follow from
+    # the face itself, so put them back wherever they are missing
+    for e in INDEX["fonts"].values():
+        need = set()
+        if e.get("has_latin") is False:
+            need.add("nonlatin")
+            if not e.get("sample"):
+                need.add("nopreview")
+        if e.get("ext") == ".dfont":
+            need.add("nopreview")
+        if need - set(e.get("also", [])):
+            e["also"] = sorted(set(e.get("also", [])) | need)
     harmonize_families()
 
 
@@ -1058,8 +1108,10 @@ class Handler(BaseHTTPRequestHandler):
             ids, cat = body.get("ids") or [], body.get("category")
             reset, remove_from = body.get("reset"), body.get("remove_from")
             if body.get("reset_all"):
-                # re-apply the built-in suggestions to every unlocked font
-                auto_ids = {cid for cid, _n, _k in AUTO_TAGS}
+                # re-apply the built-in suggestions to every unlocked font;
+                # manual tags go, but the app's own derived tags stay
+                auto_ids = ({cid for cid, _n, _k in AUTO_TAGS}
+                            | {"nonlatin", "nopreview"})
                 with LOCK:
                     for e in INDEX["fonts"].values():
                         if not e["locked"]:

@@ -52,6 +52,11 @@
     text-decoration: none; }
   #updatenote:hover { background: var(--accent); color: #fff; }
   #aistatus .pbar { width: 90px; margin: 0; }
+  /* background font preload progress */
+  #loadstatus { font-size: 10px; letter-spacing: .04em; color: var(--dim);
+    display: none; align-items: center; gap: 7px; }
+  #loadstatus .pbar { width: 90px; margin: 0; }
+  #loadstatus .pbar i { background: var(--ink); transition: width .25s; }
   .pbar { height: 5px; background: var(--hairline); margin-top: 7px; }
   .pbar i { display: block; height: 100%; width: 0%; background: var(--accent);
     transition: width .5s; }
@@ -420,6 +425,8 @@
       <span id="aistatus"><span id="aistatustext"></span>
         <span class="pbar"><i id="aistatusfill"></i></span>
         <button id="aistophdr" style="font-size:8.5px;padding:2px 7px">stop</button></span>
+      <span id="loadstatus" title="fonts are loading in the background so scrolling is instant; the biggest files load only when you reach them"><span id="loadstatustext"></span>
+        <span class="pbar"><i id="loadstatusfill"></i></span></span>
       <a id="updatenote" style="display:none" href="#"
          title="a newer Font Atlas is out; one click updates and restarts the app, your library and groups are kept">new version ↓</a>
     </header>
@@ -758,8 +765,10 @@ async function api(path, body) {
 async function refresh() {
   DATA = await api("/api/data");
   FONT_V = new Map(DATA.fonts.map(f => [f.id, f.mtime || 0]));
+  FONT_SIZE = new Map(DATA.fonts.map(f => [f.id, f.size || 0]));
   render();
 }
+let FONT_SIZE = new Map();
 
 /* versioned font URL: the file's mtime busts the cache only when the font
    actually changes, so each font downloads ONCE per browser, ever */
@@ -797,7 +806,9 @@ function pumpLoads() {
     if (el.dataset.near !== "1") { delete el.dataset.queued; continue; }
     io.unobserve(el);
     inflight++;
-    ensureFont(el.dataset.id, el).finally(() => { inflight--; pumpLoads(); });
+    ensureFont(el.dataset.id, el).finally(() => {
+      inflight--; scheduleLoadStatus(); pumpLoads();
+    });
   }
   schedulePrefetch();
 }
@@ -805,7 +816,10 @@ function pumpLoads() {
 /* idle prefetch: once the visible rows are done and scrolling has paused,
    keep loading the rows AHEAD (a few hundred, two at a time) so scrolling
    on is instant; any scroll pauses it and the viewport takes the slots */
-const PREFETCH_MAX = 2, PREFETCH_AHEAD = 400;
+const PREFETCH_MAX = 2;
+const PREFETCH_AHEAD = 3000;   // rows preloaded beyond the viewport; past
+                               // that (six-figure libraries) it's on-demand
+const BIG_FONT = 5e6;          // giants (CJK, emoji) load only when reached
 let LINES = [], prefetchCursor = -1, prefetchTimer = null;
 function schedulePrefetch() {
   clearTimeout(prefetchTimer);
@@ -814,20 +828,63 @@ function schedulePrefetch() {
 function prefetch() {
   if (document.visibilityState === "hidden" || loadQueue.length) return;
   let started = 0;
+  // saved groups first: opening one should show finished fonts right away
+  for (const g of DATA.groups || []) {
+    for (const id of g.ids) {
+      if (inflight >= LOAD_MAX || started >= PREFETCH_MAX) return;
+      if (loadedFonts.has(id) || (FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
+      inflight++; started++;
+      loadFontById(id).finally(() => {
+        inflight--;
+        scheduleLoadStatus();
+        if (loadQueue.length) pumpLoads(); else prefetch();
+      });
+    }
+  }
+  // then ahead of the reader, then whatever is above
+  const ahead = [], behind = [];
   const end = Math.min(LINES.length, prefetchCursor + 1 + PREFETCH_AHEAD);
-  for (let i = prefetchCursor + 1; i < end; i++) {
+  for (let i = prefetchCursor + 1; i < end; i++) ahead.push(i);
+  for (let i = 0; i <= prefetchCursor && i < LINES.length; i++) behind.push(i);
+  for (const i of ahead.concat(behind)) {
     if (inflight >= LOAD_MAX || started >= PREFETCH_MAX) break;
     const el = LINES[i];
-    if (!el.isConnected || loadedFonts.has(el.dataset.id)) continue;
+    const id = el.dataset.id;
+    if (!el.isConnected || loadedFonts.has(id)) continue;
+    if ((FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
     io.unobserve(el);
     inflight++; started++;
-    ensureFont(el.dataset.id, el).finally(() => {
+    ensureFont(id, el).finally(() => {
       inflight--;
+      scheduleLoadStatus();
       if (loadQueue.length) pumpLoads(); else prefetch();   // keep chaining
     });
   }
 }
 window.addEventListener("scroll", schedulePrefetch, { passive: true });
+
+/* "loading fonts 311 / 1457" in the header while the preload runs */
+let loadStatusTimer = null;
+function scheduleLoadStatus() {
+  if (loadStatusTimer) return;
+  loadStatusTimer = setTimeout(() => { loadStatusTimer = null; updateLoadStatus(); }, 250);
+}
+function updateLoadStatus() {
+  let total = 0, ready = 0;
+  for (const ln of LINES) {
+    const id = ln.dataset.id;
+    if ((FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
+    total++;
+    const s = loadedFonts.get(id);
+    if (s === "ok" || s === "broken") ready++;
+  }
+  const done = !total || ready >= total;
+  $("#loadstatus").style.display = done ? "none" : "flex";
+  if (!done) {
+    $("#loadstatustext").textContent = `loading fonts ${ready} / ${total}`;
+    $("#loadstatusfill").style.width = Math.round(100 * ready / total) + "%";
+  }
+}
 
 async function ensureFont(id, el) {
   let state = loadedFonts.get(id);
@@ -1287,10 +1344,49 @@ function groupBaseName(list) {
     const s = n.replace(STYLE_ANYWHERE, "").replace(/[\s\-_]+$/, "").trim();
     return s.length >= 3 ? s : n;
   };
+  // a cluster joined on a shared name root shows that root (bianzhidai_COLR
+  // GRAY + GRID + RGB -> "bianzhidai_COLR")
+  if (new Set(list.map(x => familyKey(x.family))).size > 1) {
+    const words = list.map(x => x.family.trim().split(/[\s\-_]+/));
+    const first = words[0];
+    let n = 0;
+    while (n < first.length && words.every(w =>
+        (w[n] || "").toLowerCase() === first[n].toLowerCase())) n++;
+    if (n >= 1) return first.slice(0, n).join(" ");
+  }
   return list.reduce((a, b) => {
     const c = clean(b.family);
     return c.length < a.length ? c : a;
   }, clean(list[0].family));
+}
+
+/* "Name X" and "Name Y" (same two-word-or-longer name, one differing last
+   word: bianzhidai_COLR GRAY / GRID / RGB, Ostrich Sans Dashed / Rounded)
+   are one family. One-word roots stay apart (Roboto vs Roboto Mono). */
+function familyRoot(family) {
+  const words = family.trim().split(/[\s\-_]+/).filter(Boolean);
+  return words.length < 3 ? "" : familyKey(words.slice(0, -1).join(" "));
+}
+function groupFamilies(fonts) {
+  const byKey = new Map(), rootKeys = new Map();
+  for (const f of fonts) {
+    const k = familyKey(f.family), r = familyRoot(f.family);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push(f);
+    if (r && r !== k) {
+      if (!rootKeys.has(r)) rootKeys.set(r, new Set());
+      rootKeys.get(r).add(k);
+    }
+  }
+  const out = new Map();
+  for (const [k, list] of byKey) {
+    const r = familyRoot(list[0].family);
+    const dest = (r && r !== k && (byKey.has(r) || rootKeys.get(r).size >= 2))
+      ? r : k;
+    if (!out.has(dest)) out.set(dest, []);
+    out.get(dest).push(...list);
+  }
+  return out;
 }
 
 function pickDefaultFace(list) {
@@ -1304,6 +1400,7 @@ function pickDefaultFace(list) {
 /* ---- family variance: families whose styles LOOK very different start
    expanded (one line per style); near-identical ones stay one line.
    Measured as average pixel overlap of the same letters across styles. ---- */
+const AUTO_EXPAND = false;    // off: opening the app shows one line per family
 const FAMVAR = new Map();     // familyKey -> avg overlap 0..1
 const USER_FAM = new Set();   // manually toggled: never auto-override
 const VARY_THRESHOLD = 0.40;   // below: styles look like different designs
@@ -1386,14 +1483,8 @@ function maybeAutoExpand(k) {
 
 /* global expand/collapse toggle in the toolbar */
 function groupableKeys() {
-  const by = new Map();
-  for (const f of DATA.fonts) {
-    const k = familyKey(f.family);
-    if (!by.has(k)) by.set(k, []);
-    by.get(k).push(f);
-  }
   const out = [];
-  for (const [k, list] of by)
+  for (const [k, list] of groupFamilies(DATA.fonts))
     if (list.length > 1) out.push(k);
   return out;
 }
@@ -1540,12 +1631,7 @@ function renderSections() {
     if (!c.visible) continue;         // checking a group turns needed boxes on
     const fonts = fontsIn(c.id);
     if (!fonts.length) continue;
-    const byFam = new Map();
-    for (const f of fonts) {
-      const k = familyKey(f.family);
-      if (!byFam.has(k)) byFam.set(k, []);
-      byFam.get(k).push(f);
-    }
+    const byFam = groupFamilies(fonts);
     const sec = document.createElement("section");
     sec.className = "cat-section";
     sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span></div>`;
@@ -1569,7 +1655,9 @@ function renderSections() {
         } else {
           const row = buildRow(pickDefaultFace(list), c, list);
           const cached = vsimCache[k];
-          if (!FAMVAR.has(k) && cached && cached[0] === list.length) {
+          if (!AUTO_EXPAND) {
+            // default view: every family is one line, always
+          } else if (!FAMVAR.has(k) && cached && cached[0] === list.length) {
             FAMVAR.set(k, cached[1]);   // known from a previous session, free
             maybeAutoExpand(k);
           } else if (!FAMVAR.has(k)) {  // measured when scrolled near
@@ -1591,6 +1679,7 @@ function renderSections() {
   LINES.forEach((el, i) => { el.dataset.idx = i; });
   prefetchCursor = -1;
   schedulePrefetch();
+  scheduleLoadStatus();
 }
 
 /* ---------------- header controls ---------------- */
