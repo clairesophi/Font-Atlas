@@ -2080,7 +2080,7 @@ function renderReview() {
 function aiPct(a) { return a.total ? Math.round(100 * a.done / a.total) : 2; }
 async function stopAI() {
   await api("/api/aisort_stop", {});
-  $("#aistatustext").textContent = "stopping after this batch…";
+  $("#aistatustext").textContent = "Claude is stopping…";
   if ($("#aimodal").classList.contains("open"))
     $("#aiprogtext").textContent = "stopping after this batch…";
 }

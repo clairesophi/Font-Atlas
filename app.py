@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.18"
+VERSION = "1.1.19"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -968,6 +968,46 @@ Reply with ONLY this JSON, nothing else:
  "new_categories": [{{"id": "<short-lowercase-id>", "name": "<Tag Display Name>"}}]}}"""
 
 
+def apply_ai_batch(result, cats):
+    """Write one batch of Claude's answers into the index (new tags, then
+    categories + tags per font; hand-sorted fonts untouched) and save."""
+    new_cats = result.get("new_categories") or []
+    assignments = result.get("assignments") or {}
+    with LOCK:
+        have = {c["id"] for c in INDEX["categories"]}
+        for nc in new_cats:
+            cid = str(nc.get("id", "")).strip()
+            name = str(nc.get("name", "")).strip()
+            if cid and name and cid not in have:
+                INDEX["categories"].insert(
+                    max(0, len(INDEX["categories"]) - 1),
+                    {"id": cid, "name": name, "visible": True,
+                     "kind": "tag"})
+                have.add(cid)
+                cats.append({"id": cid, "name": name, "kind": "tag"})
+                AISORT["new_categories"] += 1
+        style_ids = {c["id"] for c in INDEX["categories"]
+                     if c.get("kind") != "tag"}
+        for fid, val in assignments.items():
+            if isinstance(val, str):
+                val = [val]
+            val = [c for c in val if isinstance(c, str) and c in have]
+            e = INDEX["fonts"].get(fid)
+            if not e or e["locked"] or not val:
+                continue
+            # primary must be a style category; tags go to `also`
+            prim = next((c for c in val if c in style_ids), None)
+            if prim:
+                e["category"] = prim
+                e["suggested"] = prim
+                e["uncertain"] = False
+            # add Claude's tags on top of existing ones, never
+            # replace; extras are tags only, never categories
+            e["also"] = sorted((set(e.get("also", [])) | set(val))
+                               - style_ids)
+        save_index()
+
+
 def aisort_worker(key, scope, wanted=()):
     try:
         with LOCK:
@@ -985,49 +1025,36 @@ def aisort_worker(key, scope, wanted=()):
                 AISORT["stopped"] = True
                 break
             batch = todo[i:i + 80]
-            result = claude_call(key, aisort_prompt(cats, batch, wanted),
-                                 workspace)
-            u = dict(LAST_USAGE)
-            AISORT["in_tok"] += int(u.get("input_tokens") or 0)
-            AISORT["out_tok"] += int(u.get("output_tokens") or 0)
-            AISORT["cost"] = round(AISORT["in_tok"] * PRICE_IN / 1e6
-                                   + AISORT["out_tok"] * PRICE_OUT / 1e6, 2)
-            new_cats = result.get("new_categories") or []
-            assignments = result.get("assignments") or {}
-            with LOCK:
-                have = {c["id"] for c in INDEX["categories"]}
-                for nc in new_cats:
-                    cid = str(nc.get("id", "")).strip()
-                    name = str(nc.get("name", "")).strip()
-                    if cid and name and cid not in have:
-                        INDEX["categories"].insert(
-                            max(0, len(INDEX["categories"]) - 1),
-                            {"id": cid, "name": name, "visible": True,
-                             "kind": "tag"})
-                        have.add(cid)
-                        cats.append({"id": cid, "name": name, "kind": "tag"})
-                        AISORT["new_categories"] += 1
-                style_ids = {c["id"] for c in INDEX["categories"]
-                             if c.get("kind") != "tag"}
-                for fid, val in assignments.items():
-                    if isinstance(val, str):
-                        val = [val]
-                    val = [c for c in val if isinstance(c, str) and c in have]
-                    e = INDEX["fonts"].get(fid)
-                    if not e or e["locked"] or not val:
-                        continue
-                    # primary must be a style category; tags go to `also`
-                    prim = next((c for c in val if c in style_ids), None)
-                    if prim:
-                        e["category"] = prim
-                        e["suggested"] = prim
-                        e["uncertain"] = False
-                    # add Claude's tags on top of existing ones, never
-                    # replace; extras are tags only, never categories
-                    e["also"] = sorted((set(e.get("also", [])) | set(val))
-                                       - style_ids)
-                save_index()
-            AISORT["done"] = min(i + len(batch), len(todo))
+            box, done_evt = {}, threading.Event()
+
+            def call_and_apply(batch=batch, box=box, done_evt=done_evt, idx=i):
+                # the request runs off the loop so a stop takes effect at
+                # once; a batch already in flight still lands (and is
+                # still paid for) when its answer comes back
+                try:
+                    result = claude_call(key, aisort_prompt(cats, batch, wanted),
+                                         workspace)
+                    u = dict(LAST_USAGE)
+                    AISORT["in_tok"] += int(u.get("input_tokens") or 0)
+                    AISORT["out_tok"] += int(u.get("output_tokens") or 0)
+                    AISORT["cost"] = round(AISORT["in_tok"] * PRICE_IN / 1e6
+                                           + AISORT["out_tok"] * PRICE_OUT / 1e6, 2)
+                    apply_ai_batch(result, cats)
+                    AISORT["done"] = max(AISORT["done"],
+                                         min(idx + len(batch), len(todo)))
+                except Exception as exc:
+                    box["err"] = exc
+                finally:
+                    done_evt.set()
+            threading.Thread(target=call_and_apply, daemon=True).start()
+            while not done_evt.wait(0.5):
+                if AISORT.get("cancel"):
+                    break
+            if not done_evt.is_set():
+                AISORT["stopped"] = True
+                break
+            if "err" in box:
+                raise box["err"]
     except urllib.error.HTTPError as exc:
         try:
             detail = json.loads(exc.read().decode("utf-8"))
