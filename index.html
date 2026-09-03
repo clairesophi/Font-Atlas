@@ -2310,10 +2310,14 @@ $("#checkupd").onclick = async () => {
   }
   DATA.update = r.update;
   render();
-  if (r.update && r.update.available) {
+  const u = r.update || {};
+  if (u.checked === false) {
+    notice("Couldn't check",
+      `This computer couldn't reach GitHub to compare versions (${u.error || "no answer"}). You have v${r.version}; the download page always has the newest.`);
+  } else if (u.available) {
     $("#updatenote").click();   // straight into the usual update dialog
   } else {
-    notice("Up to date", `You have the newest version (v${r.version}).`);
+    notice("Up to date", `You have the newest version (v${r.version}${u.latest ? ", same as GitHub" : ""}).`);
   }
 };
 

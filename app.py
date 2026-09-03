@@ -26,7 +26,7 @@ from hashlib import sha1
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
-VERSION = "1.1.22"
+VERSION = "1.1.23"
 VERSION_URL = ("https://raw.githubusercontent.com/clairesophi/Font-Atlas/"
                "main/VERSION")
 DOWNLOAD_URL = "https://clairesophi.github.io/Font-Atlas/"
@@ -770,7 +770,8 @@ def scan_worker(roots):
 
 # ------------------------------------------------------------- update check
 
-UPDATE = {"available": False, "latest": "", "url": DOWNLOAD_URL}
+UPDATE = {"available": False, "latest": "", "url": DOWNLOAD_URL,
+          "checked": False, "error": ""}
 
 
 VERSION_API = ("https://api.github.com/repos/clairesophi/Font-Atlas/"
@@ -781,33 +782,55 @@ def parse_version(v):
     return tuple(int(x) for x in v.strip().split("."))
 
 
+def http_get(url, headers=None, timeout=10):
+    """GET bytes. If Python's own HTTPS trust store is missing (python.org
+    installs on a Mac that never ran "Install Certificates"), fall back to
+    the system curl, which trusts the system keychain."""
+    req = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
+    except Exception as exc:
+        text = str(exc).upper()
+        if "CERTIFICATE" not in text and "SSL" not in text:
+            raise
+        cmd = ["curl", "-fsSL", "--max-time", str(int(timeout))]
+        for k, v in (headers or {}).items():
+            cmd += ["-H", "%s: %s" % (k, v)]
+        cmd.append(url)
+        out = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
+        if out.returncode != 0:
+            raise RuntimeError("curl: %s" % out.stderr.decode(
+                "utf-8", "replace").strip()[:200]) from exc
+        return out.stdout
+
+
 def fetch_latest_version(timeout=5):
     """The published VERSION. The GitHub API answers with the current
     commit immediately; raw.githubusercontent lags minutes behind a push
     (a CDN cache no query string busts), so it is only the fallback."""
     import base64
     try:
-        req = urllib.request.Request(VERSION_API, headers={
-            "User-Agent": "font-atlas", "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            j = json.loads(r.read().decode("utf-8"))
+        j = json.loads(http_get(VERSION_API, {
+            "User-Agent": "font-atlas", "Accept": "application/vnd.github+json"},
+            timeout).decode("utf-8"))
         return base64.b64decode(j["content"]).decode("utf-8").strip()
     except Exception:
         pass
-    req = urllib.request.Request(VERSION_URL,
-                                 headers={"User-Agent": "font-atlas"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode("utf-8").strip()
+    return http_get(VERSION_URL, {"User-Agent": "font-atlas"},
+                    timeout).decode("utf-8").strip()
 
 
 def check_for_update():
-    """Quietly compare our VERSION against the repo's; never blocks anything."""
+    """Compare our VERSION against the repo's; never blocks anything. Records
+    whether the check actually reached GitHub so the UI can say so."""
     try:
         latest = fetch_latest_version(10)
+        UPDATE.update(checked=True, latest=latest, error="")
         if parse_version(latest) > parse_version(VERSION):
-            UPDATE.update(available=True, latest=latest)
-    except Exception:
-        pass  # offline or repo unreachable: simply no update notice
+            UPDATE["available"] = True
+    except Exception as exc:
+        UPDATE.update(checked=False, error=str(exc)[:200])
 
 
 ZIP_URL = ("https://github.com/clairesophi/Font-Atlas/archive/refs/heads/"
@@ -820,10 +843,7 @@ def self_update():
     Returns the new version string, or raises with a readable message."""
     import tempfile
     import zipfile
-    req = urllib.request.Request(ZIP_URL,
-                                 headers={"User-Agent": "font-atlas"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        blob = r.read()
+    blob = http_get(ZIP_URL, {"User-Agent": "font-atlas"}, 120)
     with tempfile.TemporaryDirectory() as td:
         zpath = os.path.join(td, "update.zip")
         with open(zpath, "wb") as f:
