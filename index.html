@@ -1904,6 +1904,15 @@ function renderSections() {
   LINES = [...wrap.querySelectorAll(".line")];
   LINES.forEach((el, i) => { el.dataset.idx = i; });
   prefetchCursor = -1;
+  // the first screenful skips the queue: on a warm reload these come
+  // straight out of the font store and paint black almost at once
+  for (const el of LINES.slice(0, 80)) {
+    const id = el.dataset.id;
+    if (loadedFonts.has(id) || (FONT_SIZE.get(id) || 0) > BIG_FONT) continue;
+    io.unobserve(el);
+    inflight++;
+    ensureFont(id, el).finally(() => { inflight--; scheduleLoadStatus(); pumpLoads(); });
+  }
   schedulePrefetch();
   scheduleLoadStatus();
 }
