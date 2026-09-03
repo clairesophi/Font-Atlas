@@ -396,8 +396,14 @@
             </svg></button>
         </span>
         <span class="seg mini" data-seg="sort">
-          <button data-v="az" class="on" data-tip="sort alphabetically">A–Z</button>
-          <button data-v="date" data-tip="sort by install date, newest first">
+          <button data-v="az" data-tip="a to z, one list">A–Z</button>
+          <button data-v="cat" class="on" data-tip="grouped by category">
+            <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-linecap="round">
+              <path d="M1.5 2h12" stroke-width="2.2"/>
+              <path d="M1.5 5h9M1.5 7.5h12" stroke-width="1.2"/>
+              <path d="M1.5 11h12" stroke-width="2.2"/>
+            </svg></button>
+          <button data-v="date" data-tip="most recently added first, one list">
             <svg viewBox="0 0 15 13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
               <rect x="1.5" y="2.5" width="12" height="9.5" rx="0.5"/>
               <path d="M1.5 5.5h12M4.5 1v3M10.5 1v3"/>
@@ -1832,16 +1838,16 @@ function renderSections() {
     };
     wrap.appendChild(fh);
   }
-  for (const c of DATA.categories) {
-    if (c.kind === "tag") continue;   // the sheet's headings are categories only
-    if (!c.visible) continue;         // checking a group turns needed boxes on
-    const fonts = fontsIn(c.id);
-    if (!fonts.length) continue;
+  // one section = a heading + the families in it; catOf(list) says which
+  // category a row belongs to (its own, in the flat views)
+  const buildSection = (title, fonts, catOf) => {
+    if (!fonts.length) return;
     const byFam = groupFamilies(fonts);
     const sec = document.createElement("section");
     sec.className = "cat-section";
-    sec.innerHTML = `<div class="cat-head"><span>${esc(c.name)}</span></div>`;
+    sec.innerHTML = `<div class="cat-head"><span>${esc(title)}</span></div>`;
     for (const [k, list] of byFam) {
+      const c = catOf(list);
       // one row per typeface, always: any key with more than one face
       // collapses (the caret and the variance auto-expander show more)
       if (list.length > 1) {
@@ -1878,6 +1884,20 @@ function renderSections() {
       }
     }
     wrap.appendChild(sec);
+  };
+  const visibleCats = DATA.categories.filter(c => c.kind !== "tag" && c.visible);
+  if (LAYOUT.sort === "cat") {
+    // by category: one section per checked category, a to z inside
+    for (const c of visibleCats) buildSection(c.name, fontsIn(c.id), () => c);
+  } else {
+    // a to z / most recent: one flat list across every checked category
+    const all = [];
+    for (const c of visibleCats) all.push(...fontsIn(c.id));
+    all.sort(LAYOUT.sort === "date"
+      ? (a, b) => (b.mtime - a.mtime) || a.family.localeCompare(b.family)
+      : (a, b) => a.family.localeCompare(b.family) || a.weight - b.weight);
+    buildSection(LAYOUT.sort === "date" ? "most recent" : "a to z", all,
+      list => catById(pickDefaultFace(list).category) || catById("unsorted"));
   }
   renderFamToggle();
   // document-order line list for the idle prefetch
@@ -2374,11 +2394,15 @@ for (const id of ["pagesize", "exsize", "perpage", "expaths"])
 function closeExport() { $("#exportmodal").classList.remove("open"); }
 /* columns + wrap/cut-off: one shared state for the main page and the export
    dialog (the two segmented controls are just two views of it) */
-const LAYOUT = { cols: "1", wrap: "wrap", sort: "az" };
+const LAYOUT = { cols: "1", wrap: "wrap", sort: "cat" };
 try {
   LAYOUT.cols = localStorage.getItem("fa_cols") || "1";
   LAYOUT.wrap = localStorage.getItem("fa_wrap") || "wrap";
-  LAYOUT.sort = localStorage.getItem("fa_sort") || "az";
+  LAYOUT.sort = localStorage.getItem("fa_sort") || "cat";
+  if (!localStorage.getItem("fa_sort_v2")) {   // "az" used to be the category view
+    if (LAYOUT.sort === "az") LAYOUT.sort = "cat";
+    localStorage.setItem("fa_sort_v2", "1");
+  }
 } catch (e) {}
 function applyLayout() {
   $("#sections").classList.toggle("cols-2", LAYOUT.cols === "2");
